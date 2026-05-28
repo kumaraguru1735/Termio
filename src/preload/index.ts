@@ -1,0 +1,114 @@
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import {
+  IPC,
+  type HostConfig,
+  type SshConnectResult,
+  type KnownHost,
+  type KeyFile,
+  type DirListing,
+  type SftpResult,
+  type PortForward,
+  type Snippet,
+  type SyncResult
+} from '../shared/types'
+
+const api = {
+  ssh: {
+    connect: (cfg: HostConfig): Promise<SshConnectResult> =>
+      ipcRenderer.invoke(IPC.sshConnect, cfg),
+
+    write: (sessionId: string, data: string): void => {
+      ipcRenderer.send(IPC.sshWrite, sessionId, data)
+    },
+
+    resize: (sessionId: string, cols: number, rows: number): void => {
+      ipcRenderer.send(IPC.sshResize, sessionId, cols, rows)
+    },
+
+    close: (sessionId: string): void => {
+      ipcRenderer.send(IPC.sshClose, sessionId)
+    },
+
+    /** Subscribe to terminal output for a session. Returns an unsubscribe fn. */
+    onData: (sessionId: string, cb: (data: string) => void): (() => void) => {
+      const handler = (_e: IpcRendererEvent, data: string): void => cb(data)
+      ipcRenderer.on(IPC.sshData(sessionId), handler)
+      return () => ipcRenderer.removeListener(IPC.sshData(sessionId), handler)
+    },
+
+    /** Subscribe to the session-closed event. Returns an unsubscribe fn. */
+    onClosed: (sessionId: string, cb: () => void): (() => void) => {
+      const handler = (): void => cb()
+      ipcRenderer.on(IPC.sshClosed(sessionId), handler)
+      return () => ipcRenderer.removeListener(IPC.sshClosed(sessionId), handler)
+    }
+  },
+
+  hosts: {
+    list: (): Promise<HostConfig[]> => ipcRenderer.invoke(IPC.hostsList),
+    upsert: (host: HostConfig): Promise<HostConfig[]> => ipcRenderer.invoke(IPC.hostsUpsert, host),
+    remove: (id: string): Promise<HostConfig[]> => ipcRenderer.invoke(IPC.hostsDelete, id)
+  },
+
+  keys: {
+    list: (): Promise<KeyFile[]> => ipcRenderer.invoke(IPC.keysList),
+    browse: (): Promise<string | null> => ipcRenderer.invoke(IPC.keyBrowse)
+  },
+
+  knownHosts: {
+    list: (): Promise<KnownHost[]> => ipcRenderer.invoke(IPC.knownHostsList),
+    remove: (id: string): Promise<KnownHost[]> => ipcRenderer.invoke(IPC.knownHostsDelete, id)
+  },
+
+  sftp: {
+    connect: (cfg: HostConfig): Promise<SshConnectResult> => ipcRenderer.invoke(IPC.sftpConnect, cfg),
+    list: (sessionId: string, path: string): Promise<DirListing> =>
+      ipcRenderer.invoke(IPC.sftpList, sessionId, path),
+    download: (sessionId: string, remotePath: string, localPath: string): Promise<SftpResult> =>
+      ipcRenderer.invoke(IPC.sftpDownload, sessionId, remotePath, localPath),
+    upload: (sessionId: string, localPath: string, remotePath: string): Promise<SftpResult> =>
+      ipcRenderer.invoke(IPC.sftpUpload, sessionId, localPath, remotePath),
+    mkdir: (sessionId: string, path: string): Promise<SftpResult> =>
+      ipcRenderer.invoke(IPC.sftpMkdir, sessionId, path),
+    remove: (sessionId: string, path: string, isDir: boolean): Promise<SftpResult> =>
+      ipcRenderer.invoke(IPC.sftpDelete, sessionId, path, isDir),
+    rename: (sessionId: string, from: string, to: string): Promise<SftpResult> =>
+      ipcRenderer.invoke(IPC.sftpRename, sessionId, from, to),
+    close: (sessionId: string): Promise<void> => ipcRenderer.invoke(IPC.sftpClose, sessionId)
+  },
+
+  local: {
+    home: (): Promise<string> => ipcRenderer.invoke(IPC.localHome),
+    list: (path: string): Promise<DirListing> => ipcRenderer.invoke(IPC.localList, path)
+  },
+
+  pf: {
+    list: (): Promise<PortForward[]> => ipcRenderer.invoke(IPC.pfList),
+    save: (rule: PortForward): Promise<PortForward[]> => ipcRenderer.invoke(IPC.pfSave, rule),
+    remove: (id: string): Promise<PortForward[]> => ipcRenderer.invoke(IPC.pfDelete, id),
+    start: (id: string): Promise<SftpResult> => ipcRenderer.invoke(IPC.pfStart, id),
+    stop: (id: string): Promise<string[]> => ipcRenderer.invoke(IPC.pfStop, id),
+    active: (): Promise<string[]> => ipcRenderer.invoke(IPC.pfActive)
+  },
+
+  snippets: {
+    list: (): Promise<Snippet[]> => ipcRenderer.invoke(IPC.snipList),
+    save: (snip: Snippet): Promise<Snippet[]> => ipcRenderer.invoke(IPC.snipSave, snip),
+    remove: (id: string): Promise<Snippet[]> => ipcRenderer.invoke(IPC.snipDelete, id)
+  },
+
+  sync: {
+    export: (passphrase: string): Promise<SyncResult> => ipcRenderer.invoke(IPC.syncExport, passphrase),
+    import: (passphrase: string): Promise<SyncResult> => ipcRenderer.invoke(IPC.syncImport, passphrase)
+  },
+
+  window: {
+    minimize: (): void => ipcRenderer.send(IPC.windowMinimize),
+    maximize: (): void => ipcRenderer.send(IPC.windowMaximize),
+    close: (): void => ipcRenderer.send(IPC.windowClose)
+  }
+}
+
+contextBridge.exposeInMainWorld('api', api)
+
+export type Api = typeof api

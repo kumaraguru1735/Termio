@@ -1,0 +1,282 @@
+import { useEffect, useState } from 'react'
+import TopBar, { type TopTab, type NewTabKind } from './components/TopBar'
+import NavSidebar, { type NavSection } from './components/NavSidebar'
+import HostsView from './components/HostsView'
+import NewHostPanel from './components/NewHostPanel'
+import TerminalView, { type TabStatus } from './components/TerminalView'
+import SftpView from './components/SftpView'
+import SessionPicker from './components/SessionPicker'
+import KeychainView from './components/KeychainView'
+import KnownHostsView from './components/KnownHostsView'
+import PortForwardView from './components/PortForwardView'
+import SnippetsView from './components/SnippetsView'
+import SettingsView from './components/SettingsView'
+import type { HostConfig } from '../../shared/types'
+
+type TabKind = 'terminal' | 'sftp'
+interface Tab {
+  tabId: string
+  /** null while the tab is "pending" — waiting for the user to pick a host. */
+  host: HostConfig | null
+  kind: TabKind
+  status: TabStatus
+}
+
+export default function App(): JSX.Element {
+  const [view, setView] = useState<NavSection>('hosts')
+  const [showingTab, setShowingTab] = useState(false)
+  const [hosts, setHosts] = useState<HostConfig[]>([])
+  const [tabs, setTabs] = useState<Tab[]>([])
+  const [activeTabId, setActiveTabId] = useState<string | null>(null)
+  const [tabSessions, setTabSessions] = useState<Record<string, string | null>>({})
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [editing, setEditing] = useState<HostConfig | null>(null)
+  /** Default action when a host card is double-clicked. Driven by the + menu. */
+  const [openAs, setOpenAs] = useState<TabKind>('terminal')
+
+  useEffect(() => {
+    void (async () => {
+      let list = await window.api.hosts.list()
+      if (list.length === 0) {
+        list = await window.api.hosts.upsert({
+          id: crypto.randomUUID(),
+          label: 'Demo (test.rebex.net)',
+          host: 'test.rebex.net',
+          port: 22,
+          username: 'demo',
+          authType: 'password',
+          password: 'password',
+          group: 'Hosts'
+        })
+      }
+      setHosts(list)
+    })()
+  }, [])
+
+  const openHost = (host: HostConfig, kind: TabKind = 'terminal'): void => {
+    const tabId = crypto.randomUUID()
+    setTabs((t) => [...t, { tabId, host, kind, status: 'connecting' }])
+    setActiveTabId(tabId)
+    setShowingTab(true)
+    setPanelOpen(false)
+  }
+
+  /** Bind a pending tab to a chosen host — starts the session. */
+  const bindTab = (tabId: string, host: HostConfig): void => {
+    setTabs((prev) =>
+      prev.map((t) => (t.tabId === tabId ? { ...t, host, status: 'connecting' } : t))
+    )
+  }
+
+  const quickConnect = (raw: string): void => {
+    const s = raw.trim()
+    const at = s.indexOf('@')
+    const user = at >= 0 ? s.slice(0, at) : 'root'
+    const rest = at >= 0 ? s.slice(at + 1) : s
+    const [h, p] = rest.split(':')
+    openHost(
+      {
+        id: crypto.randomUUID(),
+        label: s,
+        host: h,
+        port: parseInt(p, 10) || 22,
+        username: user,
+        authType: 'agent'
+      },
+      'terminal'
+    )
+  }
+
+  const closeTab = (tabId: string): void => {
+    setTabs((prev) => {
+      const next = prev.filter((t) => t.tabId !== tabId)
+      setActiveTabId((cur) => {
+        if (cur !== tabId) return cur
+        const fallback = next[next.length - 1]?.tabId ?? null
+        if (!fallback) setShowingTab(false)
+        return fallback
+      })
+      return next
+    })
+  }
+
+  const setStatus = (tabId: string, status: TabStatus): void =>
+    setTabs((prev) => prev.map((t) => (t.tabId === tabId ? { ...t, status } : t)))
+
+  const saveHost = async (host: HostConfig, connect: boolean): Promise<void> => {
+    const list = await window.api.hosts.upsert(host)
+    setHosts(list)
+    setPanelOpen(false)
+    setEditing(null)
+    if (connect) openHost(host, 'terminal')
+  }
+
+  const removeHost = async (id: string): Promise<void> => {
+    setHosts(await window.api.hosts.remove(id))
+  }
+
+  const selectNav = (s: NavSection): void => {
+    setView(s)
+    setShowingTab(false)
+    setPanelOpen(false)
+  }
+
+  const topTabs: TopTab[] = tabs.map((t) => ({
+    tabId: t.tabId,
+    title: t.host ? t.host.label : `New ${t.kind === 'sftp' ? 'SFTP' : 'Terminal'}`,
+    kind: t.kind,
+    status: t.status
+  }))
+
+  // Snippet "Run" target = active terminal tab's session.
+  const activeTab = tabs.find((t) => t.tabId === activeTabId)
+  const activeTermSession =
+    showingTab && activeTab?.kind === 'terminal' ? tabSessions[activeTab.tabId] ?? null : null
+  const runInActiveTerminal = activeTermSession
+    ? (cmd: string): void => {
+        window.api.ssh.write(activeTermSession, cmd + '\n')
+        setShowingTab(true)
+      }
+    : undefined
+
+  const sectionVisible = (s: NavSection): boolean => !showingTab && view === s
+
+  return (
+    <div className="app">
+      <TopBar
+        tabs={topTabs}
+        activeTabId={activeTabId}
+        showingTab={showingTab}
+        onSelectTab={(id) => {
+          setActiveTabId(id)
+          setShowingTab(true)
+        }}
+        onCloseTab={closeTab}
+        onNewTab={(kind: NewTabKind) => {
+          if (kind === 'host') {
+            setEditing(null)
+            setPanelOpen(true)
+            setShowingTab(false)
+            setView('hosts')
+            return
+          }
+          // Create a real new tab in the top bar, pending until a host is picked.
+          const tabId = crypto.randomUUID()
+          setTabs((t) => [...t, { tabId, host: null, kind, status: 'pending' }])
+          setActiveTabId(tabId)
+          setOpenAs(kind)
+          setShowingTab(true)
+          setPanelOpen(false)
+        }}
+      />
+
+      <div className="body">
+        <NavSidebar active={view} showing={!showingTab} onSelect={selectNav} />
+
+        <main className="main">
+          <div className="content">
+            {/* Tab panes — always mounted so sessions persist across view switches. */}
+            {tabs.map((t) => {
+              const isActive = showingTab && t.tabId === activeTabId
+              if (!t.host) {
+                return (
+                  <SessionPicker
+                    key={t.tabId}
+                    kind={t.kind}
+                    active={isActive}
+                    hosts={hosts}
+                    onPick={(h) => bindTab(t.tabId, h)}
+                    onQuickConnect={(raw) => {
+                      const s = raw.trim()
+                      const at = s.indexOf('@')
+                      const user = at >= 0 ? s.slice(0, at) : 'root'
+                      const rest = at >= 0 ? s.slice(at + 1) : s
+                      const [h, p] = rest.split(':')
+                      bindTab(t.tabId, {
+                        id: crypto.randomUUID(),
+                        label: s,
+                        host: h,
+                        port: parseInt(p, 10) || 22,
+                        username: user,
+                        authType: 'agent'
+                      })
+                    }}
+                    onNewHost={() => {
+                      setEditing(null)
+                      setPanelOpen(true)
+                      setShowingTab(false)
+                      setView('hosts')
+                    }}
+                  />
+                )
+              }
+              return t.kind === 'sftp' ? (
+                <SftpView
+                  key={t.tabId}
+                  host={t.host}
+                  active={isActive}
+                  onStatus={(s) => setStatus(t.tabId, s)}
+                />
+              ) : (
+                <TerminalView
+                  key={t.tabId}
+                  host={t.host}
+                  active={isActive}
+                  onStatus={(s) => setStatus(t.tabId, s)}
+                  onSession={(sid) => setTabSessions((m) => ({ ...m, [t.tabId]: sid }))}
+                />
+              )
+            })}
+
+            <HostsView
+              active={sectionVisible('hosts')}
+              hosts={hosts}
+              openAs={openAs}
+              onOpenAsChange={setOpenAs}
+              onOpen={openHost}
+              onQuickConnect={quickConnect}
+              onNewHost={() => {
+                setEditing(null)
+                setPanelOpen(true)
+                setShowingTab(false)
+                setView('hosts')
+              }}
+              onEdit={(h) => {
+                setEditing(h)
+                setPanelOpen(true)
+                setShowingTab(false)
+                setView('hosts')
+              }}
+              onDelete={removeHost}
+            />
+
+            {sectionVisible('keychain') && <KeychainView />}
+            {sectionVisible('knownhosts') && <KnownHostsView />}
+            {sectionVisible('portforward') && <PortForwardView hosts={hosts} />}
+            {sectionVisible('snippets') && <SnippetsView onRun={runInActiveTerminal} />}
+            {sectionVisible('settings') && <SettingsView />}
+            {sectionVisible('logs') && (
+              <div className="section-view">
+                <h2>Logs</h2>
+                <p className="section-sub">Session history will appear here.</p>
+                <div className="empty-hint">No sessions logged yet.</div>
+              </div>
+            )}
+          </div>
+        </main>
+
+        {panelOpen && (
+          <NewHostPanel
+            hosts={hosts}
+            initial={editing ?? undefined}
+            onSave={saveHost}
+            onClose={() => {
+              setPanelOpen(false)
+              setEditing(null)
+            }}
+          />
+        )}
+      </div>
+    </div>
+  )
+}

@@ -1,0 +1,59 @@
+{
+  "name": "termio",
+  "version": "0.1.0",
+  "description": "Termio — an open, local-first SSH/SFTP client (Termius-style, but yours)",
+  "author": "cybershadow",
+  "homepage": "https://github.com/kumaraguru1735/Termio",
+  "license": "MIT",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder --linux deb AppImage"
+  },
+  "dependencies": {
+    "ssh2": "^1.16.0"
+  },
+  "build": {
+    "appId": "dev.termio.app",
+    "productName": "Termio",
+    "publish": null,
+    "npmRebuild": false,
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        "deb",
+        "AppImage"
+      ],
+      "category": "Network",
+      "maintainer": "cybershadow",
+      "icon": "build/icon.png"
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/ssh2": "^1.15.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11"
+  }
+}
