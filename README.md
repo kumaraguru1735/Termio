@@ -333,11 +333,11 @@ npm run dist         # signed-less .deb + AppImage in release/
 - [x] `.deb` + AppImage packaging (no auto-updater)
 - [x] Jump host (SSH chaining) + SOCKS5 proxy
 - [x] Per-host: tags, backspace mode, agent forwarding, startup snippet, env vars
-- [ ] Split-pane terminals
-- [ ] macOS / Windows packaged builds
-- [ ] In-app host-key-changed accept/refuse prompt (currently auto-refuse on change)
-- [ ] Built-in SSH key generation in the Keychain view
-- [ ] Recent-hosts / activity log
+- [x] **Split-pane terminals** — 2-way horizontal split per terminal tab, with drag-resize
+- [x] **macOS / Windows packaged builds** — electron-builder targets + GitHub Actions release workflow
+- [x] **In-app host-key-changed accept/refuse prompt** — async-callback verifier + Refuse/Trust modal
+- [x] **Built-in SSH key generation in Keychain** — Ed25519 / RSA-4096, optional passphrase
+- [x] **Recent-hosts / activity log** — persistent JSON log of connect/disconnect/host-key events, viewable under **Logs**
 
 ---
 

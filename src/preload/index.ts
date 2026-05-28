@@ -9,7 +9,8 @@ import {
   type SftpResult,
   type PortForward,
   type Snippet,
-  type SyncResult
+  type SyncResult,
+  type ActivityRecord
 } from '../shared/types'
 
 const api = {
@@ -52,7 +53,14 @@ const api = {
 
   keys: {
     list: (): Promise<KeyFile[]> => ipcRenderer.invoke(IPC.keysList),
-    browse: (): Promise<string | null> => ipcRenderer.invoke(IPC.keyBrowse)
+    browse: (): Promise<string | null> => ipcRenderer.invoke(IPC.keyBrowse),
+    generate: (req: {
+      name: string
+      type: 'ed25519' | 'rsa-4096'
+      passphrase?: string
+      comment?: string
+    }): Promise<{ ok: boolean; key?: KeyFile; error?: string }> =>
+      ipcRenderer.invoke(IPC.keyGenerate, req)
   },
 
   knownHosts: {
@@ -106,6 +114,32 @@ const api = {
     minimize: (): void => ipcRenderer.send(IPC.windowMinimize),
     maximize: (): void => ipcRenderer.send(IPC.windowMaximize),
     close: (): void => ipcRenderer.send(IPC.windowClose)
+  },
+
+  activity: {
+    list: (): Promise<ActivityRecord[]> => ipcRenderer.invoke(IPC.activityList),
+    clear: (): Promise<ActivityRecord[]> => ipcRenderer.invoke(IPC.activityClear)
+  },
+
+  hostkey: {
+    /** Subscribe to incoming "host key changed" prompts from main. */
+    onAsk: (
+      cb: (p: {
+        promptId: string
+        host: string
+        port: number
+        label?: string
+        oldFingerprint: string
+        newFingerprint: string
+      }) => void
+    ): (() => void) => {
+      const h = (_e: IpcRendererEvent, p: unknown): void => cb(p as Parameters<typeof cb>[0])
+      ipcRenderer.on(IPC.hostkeyChangedAsk, h)
+      return () => ipcRenderer.removeListener(IPC.hostkeyChangedAsk, h)
+    },
+    answer: (promptId: string, accept: boolean): void => {
+      ipcRenderer.send(IPC.hostkeyChangedAnswer, { promptId, accept })
+    }
   }
 }
 

@@ -11,6 +11,9 @@ import { registerSftpHandlers, closeAllSftp } from './sftp'
 import { registerPortForwardHandlers, closeAllForwards } from './portforward'
 import { registerSnippetHandlers } from './snippets'
 import { registerSyncHandlers } from './sync'
+import { registerActivityHandlers, logHost } from './activity'
+import { registerPromptHandlers } from './prompts'
+import { registerKeyGenHandlers } from './keygen'
 
 /** Live SSH sessions keyed by sessionId. */
 interface Session {
@@ -79,6 +82,7 @@ function registerSshHandlers(): void {
     try {
       client = await establishConnection(cfg, getHostById)
     } catch (err) {
+      logHost(cfg, 'terminal', 'failed', (err as Error).message)
       return { ok: false, error: (err as Error).message }
     }
 
@@ -88,9 +92,11 @@ function registerSshHandlers(): void {
       client.shell({ term: 'xterm-256color' }, { env: cfg.env }, (err, stream) => {
         if (err) {
           client.end()
+          logHost(cfg, 'terminal', 'failed', err.message)
           return resolve({ ok: false, error: err.message })
         }
         sessions.set(sessionId, { client, stream })
+        logHost(cfg, 'terminal', 'connected')
 
         stream.on('data', (d: Buffer) => {
           if (!wc.isDestroyed()) wc.send(IPC.sshData(sessionId), d.toString('utf8'))
@@ -101,6 +107,7 @@ function registerSshHandlers(): void {
         stream.on('close', () => {
           sessions.delete(sessionId)
           client.end()
+          logHost(cfg, 'terminal', 'disconnected')
           if (!wc.isDestroyed()) wc.send(IPC.sshClosed(sessionId))
         })
 
@@ -170,6 +177,9 @@ app.whenReady().then(() => {
   registerPortForwardHandlers()
   registerSnippetHandlers()
   registerSyncHandlers()
+  registerActivityHandlers()
+  registerPromptHandlers()
+  registerKeyGenHandlers()
   createWindow()
 
   app.on('activate', () => {

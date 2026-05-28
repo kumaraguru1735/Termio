@@ -2,7 +2,14 @@ import { readFileSync } from 'fs'
 import { connect as netConnect, type Socket } from 'net'
 import { Client, type ConnectConfig } from 'ssh2'
 import type { HostConfig } from '../shared/types'
-import { verifyAndRecord } from './knownhosts'
+import {
+  verifyAndRecord,
+  updateKnownHost,
+  listKnownHosts,
+  fingerprintOf
+} from './knownhosts'
+import { askHostKeyChanged } from './prompts'
+import { logHost } from './activity'
 
 /** Build ssh2 connect options from a stored host config. */
 export function buildConnectConfig(cfg: HostConfig): ConnectConfig {
@@ -28,26 +35,52 @@ export function buildConnectConfig(cfg: HostConfig): ConnectConfig {
   return base
 }
 
-export function makeHostVerifier(cfg: HostConfig): {
-  verifier: (key: Buffer) => boolean
+export const HOST_KEY_CHANGED_MSG =
+  'host key changed — refused by user (or no decision in time)'
+
+/**
+ * Async-callback hostVerifier that:
+ *   • accepts matching keys silently
+ *   • TOFU-accepts unseen keys (records them) and logs the event
+ *   • prompts the user via IPC when the key has CHANGED; updates known_hosts
+ *     on accept and refuses the connection on decline.
+ */
+function makeAsyncHostVerifier(cfg: HostConfig): {
+  verifier: (key: Buffer, cb: (valid: boolean) => void) => void
   changed: () => boolean
 } {
   let changed = false
-  return {
-    changed: () => changed,
-    verifier: (key: Buffer): boolean => {
-      const result = verifyAndRecord(cfg.host, cfg.port || 22, 'host-key', key)
-      if (result === 'changed') {
-        changed = true
-        return false
-      }
-      return true
+  const verifier = (key: Buffer, cb: (valid: boolean) => void): void => {
+    const port = cfg.port || 22
+    const result = verifyAndRecord(cfg.host, port, 'host-key', key)
+    if (result === 'ok') return cb(true)
+    if (result === 'new') {
+      logHost(cfg, 'hostkey-new', 'accepted', fingerprintOf(key))
+      return cb(true)
     }
+    // 'changed' — ask the user.
+    changed = true
+    const oldRec = listKnownHosts().find((k) => k.id === `${cfg.host}:${port}`)
+    const newFp = fingerprintOf(key)
+    void askHostKeyChanged({
+      host: cfg.host,
+      port,
+      label: cfg.label,
+      oldFingerprint: oldRec?.fingerprint ?? '(none)',
+      newFingerprint: newFp
+    }).then((accept) => {
+      if (accept) {
+        updateKnownHost(cfg.host, port, 'host-key', key)
+        logHost(cfg, 'hostkey-changed', 'accepted', `${oldRec?.fingerprint ?? '?'} → ${newFp}`)
+        cb(true)
+      } else {
+        logHost(cfg, 'hostkey-changed', 'refused', `${oldRec?.fingerprint ?? '?'} → ${newFp}`)
+        cb(false)
+      }
+    })
   }
+  return { verifier, changed: () => changed }
 }
-
-export const HOST_KEY_CHANGED_MSG =
-  'host key changed — possible MITM; refused (clear it under Known Hosts to re-trust)'
 
 /**
  * Open a TCP socket to the target via a SOCKS5 proxy (no auth).
@@ -117,8 +150,9 @@ export async function establishConnection(
 
   const config = buildConnectConfig(cfg)
   if (sock) (config as ConnectConfig & { sock?: Socket }).sock = sock
-  const hv = makeHostVerifier(cfg)
-  config.hostVerifier = hv.verifier
+  const hv = makeAsyncHostVerifier(cfg)
+  // ssh2 invokes a 2-arg verifier asynchronously (calling cb later is fine).
+  ;(config as ConnectConfig).hostVerifier = hv.verifier as unknown as ConnectConfig['hostVerifier']
 
   const client = new Client()
   return await new Promise<Client>((resolve, reject) => {

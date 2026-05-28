@@ -140,3 +140,9 @@ export const IconBell = svg(
 export const IconMinimize = svg(<path d="M5 18h14" />)
 export const IconMaximize = svg(<rect x="5" y="5" width="14" height="14" rx="1" />)
 export const IconCross = svg(<path d="M6 6l12 12M6 18L18 6" />)
+export const IconSplit = svg(
+  <>
+    <rect x="3" y="4" width="18" height="16" rx="1.5" />
+    <path d="M12 4v16" />
+  </>
+)

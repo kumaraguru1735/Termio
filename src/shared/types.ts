@@ -87,6 +87,32 @@ export interface Snippet {
   command: string
 }
 
+export type ActivityKind =
+  | 'terminal'
+  | 'sftp'
+  | 'portforward'
+  | 'hostkey-new'
+  | 'hostkey-changed'
+
+export type ActivityEvent =
+  | 'connected'
+  | 'disconnected'
+  | 'failed'
+  | 'accepted'
+  | 'refused'
+
+export interface ActivityRecord {
+  id: string
+  ts: number
+  host: string
+  port: number
+  username?: string
+  label?: string
+  kind: ActivityKind
+  event: ActivityEvent
+  detail?: string
+}
+
 export interface SyncResult {
   ok: boolean
   /** File path written/read (export/import). */
@@ -152,5 +178,13 @@ export const IPC = {
   // Window controls (custom title bar)
   windowMinimize: 'win:min',
   windowMaximize: 'win:max',
-  windowClose: 'win:close'
+  windowClose: 'win:close',
+  // Activity log
+  activityList: 'activity:list',
+  activityClear: 'activity:clear',
+  // Host-key changed prompt (main → renderer / renderer → main)
+  hostkeyChangedAsk: 'hostkey:changed-ask',
+  hostkeyChangedAnswer: 'hostkey:changed-answer',
+  // SSH key generation
+  keyGenerate: 'keys:generate'
 } as const

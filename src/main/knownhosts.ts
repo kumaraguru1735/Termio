@@ -54,6 +54,16 @@ export function deleteKnownHost(id: string): KnownHost[] {
   return list
 }
 
+/** Replace the recorded fingerprint for a host:port (used after user trusts a changed key). */
+export function updateKnownHost(host: string, port: number, algo: string, key: Buffer): KnownHost {
+  const id = `${host}:${port}`
+  const list = listKnownHosts().filter((k) => k.id !== id)
+  const rec: KnownHost = { id, algo, fingerprint: fingerprintOf(key), addedAt: Date.now() }
+  list.push(rec)
+  save(list)
+  return rec
+}
+
 /** Discover private keys in ~/.ssh for the Keychain section. */
 export function listSshKeys(): KeyFile[] {
   const sshDir = join(homedir(), '.ssh')

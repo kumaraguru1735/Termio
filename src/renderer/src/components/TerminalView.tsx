@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { HostConfig } from '../../../shared/types'
 import { getActiveTheme } from '../themes'
+import { IconSplit, IconCross } from './icons'
 
 export type TabStatus = 'pending' | 'connecting' | 'connected' | 'closed'
 
@@ -12,6 +13,10 @@ interface Props {
   onStatus: (status: TabStatus) => void
   /** Reports the live SSH session id once connected (null when it closes). */
   onSession?: (sessionId: string | null) => void
+  /** When provided, renders a "split" overlay button that calls this. */
+  onSplit?: () => void
+  /** When provided, renders a "close pane" overlay button that calls this. */
+  onClosePane?: () => void
 }
 
 /**
@@ -19,7 +24,7 @@ interface Props {
  * and bridges keystrokes/output/resize over IPC. Stays mounted while
  * inactive so scrollback survives tab switches.
  */
-export default function TerminalView({ host, active, onStatus, onSession }: Props): JSX.Element {
+export default function TerminalView({ host, active, onStatus, onSession, onSplit, onClosePane }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -121,7 +126,25 @@ export default function TerminalView({ host, active, onStatus, onSession }: Prop
     return () => clearTimeout(t)
   }, [active])
 
-  return <div className={`term-pane${active ? '' : ' hidden'}`} ref={containerRef} />
+  return (
+    <div className={`term-pane${active ? '' : ' hidden'}`}>
+      <div className="term-host" ref={containerRef} />
+      {(onSplit || onClosePane) && (
+        <div className="pane-overlay">
+          {onSplit && (
+            <button className="pane-btn" title="Split right" onClick={onSplit}>
+              <IconSplit />
+            </button>
+          )}
+          {onClosePane && (
+            <button className="pane-btn" title="Close pane" onClick={onClosePane}>
+              <IconCross />
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
 }
 
 function safeFit(fit: FitAddon): void {

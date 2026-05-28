@@ -4,6 +4,7 @@ import NavSidebar, { type NavSection } from './components/NavSidebar'
 import HostsView from './components/HostsView'
 import NewHostPanel from './components/NewHostPanel'
 import TerminalView, { type TabStatus } from './components/TerminalView'
+import SplitTerminal from './components/SplitTerminal'
 import SftpView from './components/SftpView'
 import SessionPicker from './components/SessionPicker'
 import KeychainView from './components/KeychainView'
@@ -11,6 +12,8 @@ import KnownHostsView from './components/KnownHostsView'
 import PortForwardView from './components/PortForwardView'
 import SnippetsView from './components/SnippetsView'
 import SettingsView from './components/SettingsView'
+import LogsView from './components/LogsView'
+import HostKeyChangedDialog, { type HostKeyPrompt } from './components/HostKeyChangedDialog'
 import type { HostConfig } from '../../shared/types'
 
 type TabKind = 'terminal' | 'sftp'
@@ -20,6 +23,8 @@ interface Tab {
   host: HostConfig | null
   kind: TabKind
   status: TabStatus
+  /** Terminal panes (split view). At least one entry; second present when split. */
+  paneIds: string[]
 }
 
 export default function App(): JSX.Element {
@@ -33,6 +38,17 @@ export default function App(): JSX.Element {
   const [editing, setEditing] = useState<HostConfig | null>(null)
   /** Default action when a host card is double-clicked. Driven by the + menu. */
   const [openAs, setOpenAs] = useState<TabKind>('terminal')
+  /** Queue of pending host-key-changed prompts (one shown at a time). */
+  const [hkPrompts, setHkPrompts] = useState<HostKeyPrompt[]>([])
+
+  useEffect(() => {
+    return window.api.hostkey.onAsk((p) => setHkPrompts((q) => [...q, p]))
+  }, [])
+
+  const answerHostKey = (promptId: string, accept: boolean): void => {
+    window.api.hostkey.answer(promptId, accept)
+    setHkPrompts((q) => q.filter((p) => p.promptId !== promptId))
+  }
 
   useEffect(() => {
     void (async () => {
@@ -55,10 +71,34 @@ export default function App(): JSX.Element {
 
   const openHost = (host: HostConfig, kind: TabKind = 'terminal'): void => {
     const tabId = crypto.randomUUID()
-    setTabs((t) => [...t, { tabId, host, kind, status: 'connecting' }])
+    setTabs((t) => [...t, { tabId, host, kind, status: 'connecting', paneIds: [crypto.randomUUID()] }])
     setActiveTabId(tabId)
     setShowingTab(true)
     setPanelOpen(false)
+  }
+
+  const splitTabPane = (tabId: string): void => {
+    setTabs((prev) => prev.map((t) =>
+      t.tabId === tabId && t.kind === 'terminal' && t.paneIds.length < 2
+        ? { ...t, paneIds: [...t.paneIds, crypto.randomUUID()] }
+        : t
+    ))
+  }
+
+  const closeTabPane = (tabId: string, paneId: string): void => {
+    setTabs((prev) => {
+      const tab = prev.find((t) => t.tabId === tabId)
+      if (!tab) return prev
+      const next = tab.paneIds.filter((p) => p !== paneId)
+      if (next.length === 0) {
+        // No panes left — close the whole tab.
+        const trimmed = prev.filter((t) => t.tabId !== tabId)
+        setActiveTabId((cur) => (cur === tabId ? (trimmed[trimmed.length - 1]?.tabId ?? null) : cur))
+        if (trimmed.length === 0) setShowingTab(false)
+        return trimmed
+      }
+      return prev.map((t) => (t.tabId === tabId ? { ...t, paneIds: next } : t))
+    })
   }
 
   /** Bind a pending tab to a chosen host — starts the session. */
@@ -162,7 +202,7 @@ export default function App(): JSX.Element {
           }
           // Create a real new tab in the top bar, pending until a host is picked.
           const tabId = crypto.randomUUID()
-          setTabs((t) => [...t, { tabId, host: null, kind, status: 'pending' }])
+          setTabs((t) => [...t, { tabId, host: null, kind, status: 'pending', paneIds: [crypto.randomUUID()] }])
           setActiveTabId(tabId)
           setOpenAs(kind)
           setShowingTab(true)
@@ -218,12 +258,15 @@ export default function App(): JSX.Element {
                   onStatus={(s) => setStatus(t.tabId, s)}
                 />
               ) : (
-                <TerminalView
+                <SplitTerminal
                   key={t.tabId}
                   host={t.host}
                   active={isActive}
+                  paneIds={t.paneIds}
                   onStatus={(s) => setStatus(t.tabId, s)}
                   onSession={(sid) => setTabSessions((m) => ({ ...m, [t.tabId]: sid }))}
+                  onSplit={() => splitTabPane(t.tabId)}
+                  onClosePane={(paneId) => closeTabPane(t.tabId, paneId)}
                 />
               )
             })}
@@ -255,13 +298,7 @@ export default function App(): JSX.Element {
             {sectionVisible('portforward') && <PortForwardView hosts={hosts} />}
             {sectionVisible('snippets') && <SnippetsView onRun={runInActiveTerminal} />}
             {sectionVisible('settings') && <SettingsView />}
-            {sectionVisible('logs') && (
-              <div className="section-view">
-                <h2>Logs</h2>
-                <p className="section-sub">Session history will appear here.</p>
-                <div className="empty-hint">No sessions logged yet.</div>
-              </div>
-            )}
+            {sectionVisible('logs') && <LogsView />}
           </div>
         </main>
 
@@ -277,6 +314,10 @@ export default function App(): JSX.Element {
           />
         )}
       </div>
+
+      {hkPrompts.length > 0 && (
+        <HostKeyChangedDialog prompt={hkPrompts[0]} onAnswer={answerHostKey} />
+      )}
     </div>
   )
 }

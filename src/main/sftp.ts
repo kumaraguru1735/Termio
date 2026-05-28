@@ -14,6 +14,7 @@ import {
 } from '../shared/types'
 import { establishConnection } from './ssh-common'
 import { loadHosts } from './store'
+import { logHost } from './activity'
 
 interface SftpSession {
   client: Client
@@ -42,16 +43,22 @@ export function registerSftpHandlers(): void {
     try {
       client = await establishConnection(cfg, getHostById)
     } catch (err) {
+      logHost(cfg, 'sftp', 'failed', (err as Error).message)
       return { ok: false, error: (err as Error).message }
     }
     return new Promise<SshConnectResult>((resolve) => {
       client.sftp((err, sftp) => {
         if (err) {
           client.end()
+          logHost(cfg, 'sftp', 'failed', err.message)
           return resolve({ ok: false, error: err.message })
         }
         sessions.set(sessionId, { client, sftp })
-        client.once('close', () => sessions.delete(sessionId))
+        logHost(cfg, 'sftp', 'connected')
+        client.once('close', () => {
+          sessions.delete(sessionId)
+          logHost(cfg, 'sftp', 'disconnected')
+        })
         resolve({ ok: true, sessionId })
       })
     })
