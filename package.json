@@ -1,6 +1,6 @@
 {
   "name": "termio",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Termio — an open, local-first SSH/SFTP client (Termius-style, but yours)",
   "author": "cybershadow",
   "homepage": "https://github.com/kumaraguru1735/Termio",

@@ -42,11 +42,13 @@ jobs:
         shell: bash
         run: |
           if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-            npx electron-builder --linux deb AppImage
+            npx electron-builder --linux deb AppImage --x64
           elif [ "${{ matrix.os }}" = "macos-latest" ]; then
-            npx electron-builder --mac dmg zip
+            # Build both Intel and Apple-Silicon variants — the runner is arm64
+            # so x64 uses Electron's prebuilt cross-arch binary.
+            npx electron-builder --mac dmg zip --x64 --arm64
           else
-            npx electron-builder --win nsis portable
+            npx electron-builder --win nsis portable --x64
           fi
 
       - name: Upload artifacts
