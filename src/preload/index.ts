@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { clipboard, contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import {
   IPC,
   type HostConfig,
@@ -88,6 +88,16 @@ const api = {
   local: {
     home: (): Promise<string> => ipcRenderer.invoke(IPC.localHome),
     list: (path: string): Promise<DirListing> => ipcRenderer.invoke(IPC.localList, path)
+  },
+
+  files: {
+    /** Resolve the absolute filesystem path of a File dropped from the OS. */
+    pathFor: (file: File): string => webUtils.getPathForFile(file)
+  },
+
+  clipboard: {
+    writeText: (text: string): void => clipboard.writeText(text),
+    readText: (): string => clipboard.readText()
   },
 
   pf: {

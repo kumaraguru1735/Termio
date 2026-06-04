@@ -429,6 +429,9 @@ input { font-family: inherit; }
 .fm-row { padding: 7px 18px; font-size: 13px; }
 .fm-row:hover { background: var(--nav-hover); }
 .fm-row.selected { background: #e6f0fd; }
+.fm-row[draggable='true'] { cursor: grab; }
+.fm-row[draggable='true']:active { cursor: grabbing; }
+.sftp-side.drag-over { outline: 2px dashed var(--blue); outline-offset: -2px; background: var(--nav-hover); }
 .fm-name { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .fm-name .ic { font-size: 15px; }
 .fm-name .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

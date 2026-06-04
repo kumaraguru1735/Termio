@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type DragEvent } from 'react'
 import type { FileEntry, HostConfig } from '../../../shared/types'
 import type { TabStatus } from './TerminalView'
 import { IconFolder, IconChevronRight } from './icons'
@@ -86,22 +86,89 @@ export default function SftpView({ host, active, onStatus }: Props): JSX.Element
     setBusy(true)
     try { await fn() } finally { setBusy(false) }
   }
-  const upload = (): Promise<void> => withBusy(async () => {
-    const id = sessionRef.current
-    if (!id || !local.selected) return
-    const r = await window.api.sftp.upload(id, joinPath(local.path, local.selected), joinPath(remote.path, local.selected))
-    if (!r.ok) setLocal((p) => ({ ...p, error: r.error ?? 'upload failed' }))
-    await loadRemote(remote.path)
-  })
-  const download = (): Promise<void> => withBusy(async () => {
-    const id = sessionRef.current
-    if (!id || !remote.selected) return
-    const r = await window.api.sftp.download(id, joinPath(remote.path, remote.selected), joinPath(local.path, remote.selected))
-    if (!r.ok) setRemote((p) => ({ ...p, error: r.error ?? 'download failed' }))
-    await loadLocal(local.path)
-  })
+
+  // Upload one or more local files (given by absolute path) into the current remote dir.
+  const doUpload = (items: { localPath: string; name: string }[]): Promise<void> =>
+    withBusy(async () => {
+      const id = sessionRef.current
+      if (!id || items.length === 0) return
+      for (const it of items) {
+        const r = await window.api.sftp.upload(id, it.localPath, joinPath(remote.path, it.name))
+        if (!r.ok) setRemote((p) => ({ ...p, error: r.error ?? `upload failed: ${it.name}` }))
+      }
+      await loadRemote(remote.path)
+    })
+  // Download one or more remote files (given by absolute path) into the current local dir.
+  const doDownload = (items: { remotePath: string; name: string }[]): Promise<void> =>
+    withBusy(async () => {
+      const id = sessionRef.current
+      if (!id || items.length === 0) return
+      for (const it of items) {
+        const r = await window.api.sftp.download(id, it.remotePath, joinPath(local.path, it.name))
+        if (!r.ok) setLocal((p) => ({ ...p, error: r.error ?? `download failed: ${it.name}` }))
+      }
+      await loadLocal(local.path)
+    })
+
+  const upload = (): Promise<void> =>
+    local.selected
+      ? doUpload([{ localPath: joinPath(local.path, local.selected), name: local.selected }])
+      : Promise.resolve()
+  const download = (): Promise<void> =>
+    remote.selected
+      ? doDownload([{ remotePath: joinPath(remote.path, remote.selected), name: remote.selected }])
+      : Promise.resolve()
+
+  // ---- Drag & drop ----
+  type Side = 'local' | 'remote'
+  const dragRef = useRef<{ side: Side; name: string; type: FileEntry['type'] } | null>(null)
+  const [dragOver, setDragOver] = useState<Side | null>(null)
+  const baseName = (p: string): string => p.split(/[\\/]/).pop() || p
+
+  const onRowDragStart = (side: Side, e: FileEntry) => (): void => {
+    dragRef.current = { side, name: e.name, type: e.type }
+  }
+  const onRowDragEnd = (): void => {
+    dragRef.current = null
+    setDragOver(null)
+  }
+  const allowDrop = (side: Side) => (ev: DragEvent): void => {
+    const item = dragRef.current
+    const hasFiles = Array.from(ev.dataTransfer.types).includes('Files')
+    // Allow OS files onto remote, and cross-pane internal drags.
+    if ((hasFiles && side === 'remote') || (item && item.side !== side)) {
+      ev.preventDefault()
+      ev.dataTransfer.dropEffect = hasFiles ? 'copy' : 'move'
+      if (dragOver !== side) setDragOver(side)
+    }
+  }
+  const onDrop = (side: Side) => (ev: DragEvent): void => {
+    ev.preventDefault()
+    setDragOver(null)
+    const files = Array.from(ev.dataTransfer.files)
+    if (files.length > 0) {
+      if (side !== 'remote') return // local-pane OS drops aren't supported (no local copy API)
+      const items = files
+        .map((f) => window.api.files.pathFor(f))
+        .filter(Boolean)
+        .map((p) => ({ localPath: p, name: baseName(p) }))
+      if (items.length) void doUpload(items)
+      return
+    }
+    const item = dragRef.current
+    dragRef.current = null
+    if (!item || item.side === side) return
+    if (item.type === 'dir') {
+      const setErr = side === 'remote' ? setRemote : setLocal
+      setErr((p) => ({ ...p, error: 'folders are not supported yet — drag individual files' }))
+      return
+    }
+    if (side === 'remote') void doUpload([{ localPath: joinPath(local.path, item.name), name: item.name }])
+    else void doDownload([{ remotePath: joinPath(remote.path, item.name), name: item.name }])
+  }
 
   const renderFm = (
+    side: Side,
     title: string,
     pane: Pane,
     navigate: (p: string) => void,
@@ -110,7 +177,12 @@ export default function SftpView({ host, active, onStatus }: Props): JSX.Element
   ): JSX.Element => {
     const segs = crumbsOf(pane.path)
     return (
-      <div className="sftp-side">
+      <div
+        className={`sftp-side${dragOver === side ? ' drag-over' : ''}`}
+        onDragOver={allowDrop(side)}
+        onDragLeave={() => setDragOver((d) => (d === side ? null : d))}
+        onDrop={onDrop(side)}
+      >
         <div className="sftp-bar">
           <span className="loc">
             <IconFolder /> {title}
@@ -144,6 +216,9 @@ export default function SftpView({ host, active, onStatus }: Props): JSX.Element
             <div
               key={e.name}
               className={`fm-row${pane.selected === e.name ? ' selected' : ''}`}
+              draggable={e.type !== 'dir'}
+              onDragStart={onRowDragStart(side, e)}
+              onDragEnd={onRowDragEnd}
               onClick={() => select(e.name)}
               onDoubleClick={() => e.type === 'dir' && navigate(joinPath(pane.path, e.name))}
             >
@@ -165,6 +240,7 @@ export default function SftpView({ host, active, onStatus }: Props): JSX.Element
   return (
     <div className={`sftp-wrap${active ? '' : ' hidden'}`}>
       {renderFm(
+        'local',
         'Local',
         local,
         (p) => void loadLocal(p),
@@ -175,6 +251,7 @@ export default function SftpView({ host, active, onStatus }: Props): JSX.Element
       )}
       {connected ? (
         renderFm(
+          'remote',
           'Remote',
           remote,
           (p) => void loadRemote(p),
