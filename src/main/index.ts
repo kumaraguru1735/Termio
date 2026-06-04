@@ -170,22 +170,35 @@ function registerHostHandlers(): void {
   })
 }
 
-app.whenReady().then(() => {
-  registerSshHandlers()
-  registerHostHandlers()
-  registerSftpHandlers()
-  registerPortForwardHandlers()
-  registerSnippetHandlers()
-  registerSyncHandlers()
-  registerActivityHandlers()
-  registerPromptHandlers()
-  registerKeyGenHandlers()
-  createWindow()
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+// Enforce a single running instance: a second launch (e.g. clicking the app
+// icon again) focuses the existing window instead of opening a duplicate.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
   })
-})
+
+  app.whenReady().then(() => {
+    registerSshHandlers()
+    registerHostHandlers()
+    registerSftpHandlers()
+    registerPortForwardHandlers()
+    registerSnippetHandlers()
+    registerSyncHandlers()
+    registerActivityHandlers()
+    registerPromptHandlers()
+    registerKeyGenHandlers()
+    createWindow()
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
+  })
+}
 
 app.on('window-all-closed', () => {
   for (const { client } of sessions.values()) client.end()
