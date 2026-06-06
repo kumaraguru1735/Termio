@@ -10,14 +10,37 @@ import {
 } from './knownhosts'
 import { askHostKeyChanged } from './prompts'
 import { logHost } from './activity'
+import { loadIdentities } from './store'
+
+/**
+ * Overlay a referenced identity's credentials onto the host config. The
+ * identity wins for username/auth so editing it propagates to every host.
+ */
+function resolveCredentials(cfg: HostConfig): HostConfig {
+  if (!cfg.identityId) return cfg
+  const identity = loadIdentities().find((i) => i.id === cfg.identityId)
+  if (!identity) return cfg
+  return {
+    ...cfg,
+    username: identity.username || cfg.username,
+    authType: identity.authType,
+    password: identity.password,
+    privateKeyPath: identity.privateKeyPath,
+    passphrase: identity.passphrase
+  }
+}
 
 /** Build ssh2 connect options from a stored host config. */
-export function buildConnectConfig(cfg: HostConfig): ConnectConfig {
+export function buildConnectConfig(host: HostConfig): ConnectConfig {
+  const cfg = resolveCredentials(host)
   const base: ConnectConfig = {
     host: cfg.host,
     port: cfg.port || 22,
     username: cfg.username,
-    readyTimeout: 20000
+    readyTimeout: 20000,
+    // Detect dead links quickly so auto-reconnect can kick in (~30s worst case).
+    keepaliveInterval: 10000,
+    keepaliveCountMax: 3
   }
   if (cfg.authType === 'agent') {
     base.agent = process.env.SSH_AUTH_SOCK

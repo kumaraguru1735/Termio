@@ -1,5 +1,5 @@
-import { useState, type Dispatch, type SetStateAction } from 'react'
-import type { BackspaceMode, HostConfig, ProxyType } from '../../../shared/types'
+import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
+import type { BackspaceMode, HostConfig, Identity, ProxyType } from '../../../shared/types'
 import {
   IconHosts,
   IconUser,
@@ -36,6 +36,9 @@ export default function NewHostPanel({ hosts, initial, onSave, onClose }: Props)
   const [privateKeyPath, setPrivateKeyPath] = useState(initial?.privateKeyPath ?? '')
   const [passphrase, setPassphrase] = useState(initial?.passphrase ?? '')
   const [agentForward, setAgentForward] = useState(!!initial?.agentForward)
+  const [autoReconnect, setAutoReconnect] = useState(initial?.autoReconnect !== false)
+  const [identityId, setIdentityId] = useState(initial?.identityId ?? '')
+  const [identities, setIdentities] = useState<Identity[]>([])
   const [startupSnippet, setStartupSnippet] = useState(initial?.startupSnippet ?? '')
   const [jumpHostId, setJumpHostId] = useState(initial?.jumpHostId ?? '')
   const [proxyType, setProxyType] = useState<ProxyType>(initial?.proxy?.type ?? 'none')
@@ -54,6 +57,10 @@ export default function NewHostPanel({ hosts, initial, onSave, onClose }: Props)
 
   const toggle = (k: string): void => setOpenRows((m) => ({ ...m, [k]: !m[k] }))
 
+  useEffect(() => {
+    void window.api.identities.list().then(setIdentities)
+  }, [])
+
   const browse = async (): Promise<void> => {
     const p = await window.api.keys.browse()
     if (p) setPrivateKeyPath(p)
@@ -66,8 +73,8 @@ export default function NewHostPanel({ hosts, initial, onSave, onClose }: Props)
   }
 
   const build = (): HostConfig | null => {
-    if (!host.trim() || !username.trim()) {
-      setError('Address and username are required.')
+    if (!host.trim() || (!identityId && !username.trim())) {
+      setError(identityId ? 'Address is required.' : 'Address and username are required.')
       return null
     }
     const authType = privateKeyPath.trim() ? 'key' : password ? 'password' : 'agent'
@@ -93,11 +100,14 @@ export default function NewHostPanel({ hosts, initial, onSave, onClose }: Props)
         proxyType !== 'none' && proxyHost.trim()
           ? { type: proxyType, host: proxyHost.trim(), port: parseInt(proxyPort, 10) || 1080 }
           : undefined,
-      env: Object.keys(env).length ? env : undefined
+      env: Object.keys(env).length ? env : undefined,
+      identityId: identityId || undefined,
+      // Default is on — only persist the opt-out.
+      autoReconnect: autoReconnect ? undefined : false
     }
   }
 
-  const canConnect = host.trim().length > 0 && username.trim().length > 0
+  const canConnect = host.trim().length > 0 && (identityId !== '' || username.trim().length > 0)
   const otherHosts = hosts.filter((h) => h.id !== initial?.id)
 
   return (
@@ -170,6 +180,34 @@ export default function NewHostPanel({ hosts, initial, onSave, onClose }: Props)
         </div>
 
         <div className="rp-section">Credentials</div>
+        {identities.length > 0 && (
+          <div className="fld">
+            <IconKey />
+            <span className="lbl">Identity</span>
+            <select
+              className="pill-select"
+              style={{ flex: 1 }}
+              value={identityId}
+              onChange={(e) => setIdentityId(e.target.value)}
+            >
+              <option value="">(enter manually)</option>
+              {identities.map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.name} — {i.username} ({i.authType})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        {identityId !== '' ? (
+          <div className="fld muted">
+            <IconUser />
+            <span className="lbl flex1">
+              Credentials come from “{identities.find((i) => i.id === identityId)?.name ?? '…'}”
+            </span>
+          </div>
+        ) : (
+          <>
         <div className="fld">
           <IconUser />
           <input placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
@@ -221,12 +259,22 @@ export default function NewHostPanel({ hosts, initial, onSave, onClose }: Props)
             </div>
           </>
         )}
+          </>
+        )}
 
         {/* Agent Forwarding */}
         <div className="fld clickable" onClick={() => setAgentForward((v) => !v)}>
           <span className="lbl flex1">Agent Forwarding</span>
           <span className={`suffix ${agentForward ? 'on' : ''}`}>
             {agentForward ? 'Enabled' : 'Disabled'}
+          </span>
+        </div>
+
+        {/* Auto-reconnect */}
+        <div className="fld clickable" onClick={() => setAutoReconnect((v) => !v)}>
+          <span className="lbl flex1">Auto-reconnect</span>
+          <span className={`suffix ${autoReconnect ? 'on' : ''}`}>
+            {autoReconnect ? 'Enabled' : 'Disabled'}
           </span>
         </div>
 

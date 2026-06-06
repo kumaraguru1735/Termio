@@ -1,7 +1,7 @@
 import { app, safeStorage } from 'electron'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
-import type { HostConfig } from '../shared/types'
+import type { HostConfig, Identity } from '../shared/types'
 
 /**
  * Local-first host store. Persists to userData/hosts.dat, encrypted with
@@ -61,4 +61,51 @@ export function deleteHost(id: string): HostConfig[] {
   const hosts = loadHosts().filter((h) => h.id !== id)
   saveHosts(hosts)
   return hosts
+}
+
+// ---- Reusable credentials (identities) — same encrypted-at-rest scheme ----
+
+const identityFile = join(dir, 'identities.dat')
+
+export function loadIdentities(): Identity[] {
+  try {
+    if (!existsSync(identityFile)) return []
+    const raw = readFileSync(identityFile)
+    let json: string
+    if (safeStorage.isEncryptionAvailable() && !raw.slice(0, 1).equals(Buffer.from('['))) {
+      json = safeStorage.decryptString(raw)
+    } else {
+      json = raw.toString('utf8')
+    }
+    const parsed = JSON.parse(json)
+    return Array.isArray(parsed) ? parsed : []
+  } catch (err) {
+    console.error('[store] failed to load identities:', err)
+    return []
+  }
+}
+
+export function saveIdentities(ids: Identity[]): void {
+  ensureDir()
+  const json = JSON.stringify(ids, null, 2)
+  if (safeStorage.isEncryptionAvailable()) {
+    writeFileSync(identityFile, safeStorage.encryptString(json))
+  } else {
+    writeFileSync(identityFile, json, 'utf8')
+  }
+}
+
+export function upsertIdentity(identity: Identity): Identity[] {
+  const ids = loadIdentities()
+  const i = ids.findIndex((x) => x.id === identity.id)
+  if (i >= 0) ids[i] = identity
+  else ids.push(identity)
+  saveIdentities(ids)
+  return ids
+}
+
+export function deleteIdentity(id: string): Identity[] {
+  const ids = loadIdentities().filter((x) => x.id !== id)
+  saveIdentities(ids)
+  return ids
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { HostConfig } from '../../../shared/types'
-import { getActiveTheme } from '../themes'
+import { getActiveTheme, THEME_EVENT } from '../themes'
 import { IconSplit, IconCross } from './icons'
 
 export type TabStatus = 'pending' | 'connecting' | 'connected' | 'closed'
@@ -29,6 +29,8 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const sessionIdRef = useRef<string | null>(null)
+  /** Set by the connection effect; returns true when a reconnect was started. */
+  const reconnectRef = useRef<() => boolean>(() => false)
 
   // Keep latest callbacks without re-running the setup effect.
   const onStatusRef = useRef(onStatus)
@@ -114,6 +116,13 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
         paste()
         return false
       }
+      // Enter on a closed session = quick reconnect.
+      if (ev.key === 'Enter' && !ev.ctrlKey && !ev.altKey && !ev.metaKey && !sessionIdRef.current) {
+        if (reconnectRef.current()) {
+          ev.preventDefault()
+          return false
+        }
+      }
       // Per-host backspace mode: 'ctrl-h' sends ^H instead of the default ^?.
       if (
         host.backspace === 'ctrl-h' &&
@@ -142,15 +151,49 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
     termRef.current = term
     fitRef.current = fit
 
-    term.writeln(`\x1b[90mConnecting to ${host.username}@${host.host}:${host.port} …\x1b[0m`)
     onStatusRef.current('connecting')
 
     let disposed = false
+    let connecting = false
+    let hadConnected = false
+    let attempts = 0
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
     let unsubData: (() => void) | undefined
     let unsubClosed: (() => void) | undefined
 
-    ;(async () => {
+    // Registered once — writes to whichever session is current, so a
+    // reconnect never double-sends keystrokes.
+    term.onData((d) => {
+      if (sessionIdRef.current) window.api.ssh.write(sessionIdRef.current, d)
+    })
+
+    const autoReconnect = host.autoReconnect !== false
+    const RETRY_DELAYS = [2000, 4000, 8000, 15000, 30000]
+
+    const scheduleReconnect = (): void => {
+      if (disposed || !autoReconnect || !hadConnected) return
+      if (!navigator.onLine) {
+        // No point retrying into a dead network — the 'online' listener
+        // below reconnects the moment the internet returns.
+        term.writeln('\x1b[90m[offline — will reconnect when the network returns]\x1b[0m')
+        return
+      }
+      if (attempts >= RETRY_DELAYS.length) {
+        term.writeln('\x1b[90m[gave up — press Enter to reconnect]\x1b[0m')
+        return
+      }
+      const delay = RETRY_DELAYS[attempts++]
+      term.writeln(`\x1b[90m[reconnecting in ${Math.round(delay / 1000)}s — attempt ${attempts}]\x1b[0m`)
+      retryTimer = setTimeout(() => void openSession(), delay)
+    }
+
+    const openSession = async (): Promise<void> => {
+      if (disposed || connecting || sessionIdRef.current) return
+      connecting = true
+      onStatusRef.current('connecting')
+      term.writeln(`\x1b[90mConnecting to ${host.username}@${host.host}:${host.port} …\x1b[0m`)
       const res = await window.api.ssh.connect(host)
+      connecting = false
       if (disposed) {
         if (res.ok && res.sessionId) window.api.ssh.close(res.sessionId)
         return
@@ -158,22 +201,58 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
       if (!res.ok || !res.sessionId) {
         term.writeln(`\r\n\x1b[31m[connection failed: ${res.error ?? 'unknown error'}]\x1b[0m`)
         onStatusRef.current('closed')
+        if (autoReconnect && hadConnected) scheduleReconnect()
+        else term.writeln('\x1b[90m[press Enter to retry]\x1b[0m')
         return
       }
       const id = res.sessionId
       sessionIdRef.current = id
+      hadConnected = true
+      attempts = 0
       onStatusRef.current('connected')
       onSessionRef.current?.(id)
 
       unsubData = window.api.ssh.onData(id, (d) => term.write(d))
       unsubClosed = window.api.ssh.onClosed(id, () => {
+        unsubData?.()
+        unsubClosed?.()
+        sessionIdRef.current = null
         onStatusRef.current('closed')
         onSessionRef.current?.(null)
         term.writeln('\r\n\x1b[33m[session closed]\x1b[0m')
+        if (autoReconnect) scheduleReconnect()
+        else term.writeln('\x1b[90m[press Enter to reconnect]\x1b[0m')
       })
-      term.onData((d) => window.api.ssh.write(id, d))
       window.api.ssh.resize(id, term.cols, term.rows)
-    })()
+    }
+
+    void openSession()
+
+    // The moment the internet comes back, reconnect immediately.
+    const onOnline = (): void => {
+      if (disposed || sessionIdRef.current || connecting) return
+      if (!autoReconnect || !hadConnected) return
+      attempts = 0
+      if (retryTimer) clearTimeout(retryTimer)
+      term.writeln('\x1b[90m[network restored]\x1b[0m')
+      void openSession()
+    }
+    window.addEventListener('online', onOnline)
+
+    // Manual reconnect with Enter once the session is closed.
+    reconnectRef.current = () => {
+      if (sessionIdRef.current || connecting || disposed) return false
+      attempts = 0
+      if (retryTimer) clearTimeout(retryTimer)
+      void openSession()
+      return true
+    }
+
+    // Live theme switching for already-open terminals.
+    const onTheme = (): void => {
+      term.options.theme = getActiveTheme()
+    }
+    window.addEventListener(THEME_EVENT, onTheme)
 
     const syncSize = (): void => {
       safeFit(fit)
@@ -185,9 +264,12 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
 
     return () => {
       disposed = true
+      if (retryTimer) clearTimeout(retryTimer)
       ro.disconnect()
       containerEl.removeEventListener('contextmenu', onContextMenu)
       window.removeEventListener('resize', syncSize)
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener(THEME_EVENT, onTheme)
       unsubData?.()
       unsubClosed?.()
       onSessionRef.current?.(null)

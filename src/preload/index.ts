@@ -5,6 +5,7 @@ import {
   type SshConnectResult,
   type KnownHost,
   type KeyFile,
+  type Identity,
   type DirListing,
   type SftpResult,
   type PortForward,
@@ -49,6 +50,13 @@ const api = {
     list: (): Promise<HostConfig[]> => ipcRenderer.invoke(IPC.hostsList),
     upsert: (host: HostConfig): Promise<HostConfig[]> => ipcRenderer.invoke(IPC.hostsUpsert, host),
     remove: (id: string): Promise<HostConfig[]> => ipcRenderer.invoke(IPC.hostsDelete, id)
+  },
+
+  identities: {
+    list: (): Promise<Identity[]> => ipcRenderer.invoke(IPC.identitiesList),
+    upsert: (identity: Identity): Promise<Identity[]> =>
+      ipcRenderer.invoke(IPC.identitiesUpsert, identity),
+    remove: (id: string): Promise<Identity[]> => ipcRenderer.invoke(IPC.identitiesDelete, id)
   },
 
   keys: {

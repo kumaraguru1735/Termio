@@ -26,6 +26,33 @@
   --ink: #0b1020;            /* terminal background (stays dark) */
   --topbar-h: 46px;
   --tabbar-h: 0px;
+
+  --row-sel: #e6f0fd;        /* selected list/file row */
+  --chip-bg: #dde7f7;        /* tag chip */
+  --chip-text: #134f96;
+  --hover-soft: #e5e7eb;     /* clickable field hover */
+  --field-accent: #eef5ff;   /* field with a value set */
+}
+
+/* App-wide dark theme — overrides the chrome around the terminal. */
+:root[data-app-theme='dark'] {
+  --bg: #14161c;
+  --panel: #1c1f27;
+  --nav-text: #d7dbe2;
+  --nav-dim: #8a909c;
+  --nav-hover: #242833;
+  --nav-active: #2b303c;
+  --border: #2a2e38;
+  --border-strong: #353a46;
+  --field: #262a34;
+  --field-text: #d7dbe2;
+  --host-icon: #2b303c;
+
+  --row-sel: #243450;
+  --chip-bg: #243450;
+  --chip-text: #8fb8ef;
+  --hover-soft: #2b303c;
+  --field-accent: #232c3d;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -155,7 +182,7 @@ input { font-family: inherit; }
 }
 .searchbar input { flex: 1; background: none; border: none; outline: none; font-size: 13.5px; color: var(--field-text); padding: 8px 0; }
 .searchbar .connect-btn {
-  background: #dfe3e8; color: #9aa0ab; border: none; border-radius: 7px;
+  background: var(--nav-active); color: var(--nav-dim); border: none; border-radius: 7px;
   padding: 8px 18px; font-weight: 600; font-size: 12.5px;
 }
 .searchbar .connect-btn.enabled { background: var(--blue); color: #fff; }
@@ -288,8 +315,8 @@ input { font-family: inherit; }
 .fld .suffix.link { cursor: pointer; color: var(--blue); margin-left: 4px; }
 .fld .suffix.link:hover { text-decoration: underline; }
 .fld.clickable { cursor: pointer; transition: background .12s; }
-.fld.clickable:hover { background: #e5e7eb; }
-.fld.has-val { background: #eef5ff; }
+.fld.clickable:hover { background: var(--hover-soft); }
+.fld.has-val { background: var(--field-accent); }
 .fld.fld-multi { flex-wrap: wrap; align-items: flex-start; padding: 6px 8px; }
 .pill-select {
   background: var(--panel); border: 1px solid var(--border-strong); border-radius: 7px;
@@ -301,7 +328,7 @@ input { font-family: inherit; }
 .chips { display: flex; flex-wrap: wrap; gap: 5px; width: 100%; align-items: center; }
 .chip {
   display: inline-flex; align-items: center; gap: 4px;
-  background: #dde7f7; color: #134f96; font-weight: 600; font-size: 11.5px;
+  background: var(--chip-bg); color: var(--chip-text); font-weight: 600; font-size: 11.5px;
   padding: 3px 4px 3px 9px; border-radius: 12px;
 }
 .chip button { border: none; background: transparent; color: inherit; opacity: .7; cursor: pointer; padding: 0 4px; font-size: 14px; line-height: 1; }
@@ -310,7 +337,7 @@ input { font-family: inherit; }
 
 /* expander body */
 .expander-body {
-  background: #fafbfd;
+  background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 9px;
   padding: 10px 11px;
@@ -428,7 +455,7 @@ input { font-family: inherit; }
 .fm-list { flex: 1; overflow-y: auto; }
 .fm-row { padding: 7px 18px; font-size: 13px; }
 .fm-row:hover { background: var(--nav-hover); }
-.fm-row.selected { background: #e6f0fd; }
+.fm-row.selected { background: var(--row-sel); }
 .fm-row[draggable='true'] { cursor: grab; }
 .fm-row[draggable='true']:active { cursor: grabbing; }
 .sftp-side.drag-over { outline: 2px dashed var(--blue); outline-offset: -2px; background: var(--nav-hover); }

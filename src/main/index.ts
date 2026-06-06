@@ -3,8 +3,8 @@ import { existsSync, renameSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { Client, type ClientChannel } from 'ssh2'
-import { IPC, type HostConfig, type SshConnectResult } from '../shared/types'
-import { loadHosts, upsertHost, deleteHost } from './store'
+import { IPC, type HostConfig, type Identity, type SshConnectResult } from '../shared/types'
+import { loadHosts, upsertHost, deleteHost, loadIdentities, upsertIdentity, deleteIdentity } from './store'
 import { listKnownHosts, deleteKnownHost, listSshKeys } from './knownhosts'
 import { establishConnection } from './ssh-common'
 import { registerSftpHandlers, closeAllSftp } from './sftp'
@@ -147,6 +147,10 @@ function registerHostHandlers(): void {
   ipcMain.handle(IPC.hostsList, (): HostConfig[] => loadHosts())
   ipcMain.handle(IPC.hostsUpsert, (_e, host: HostConfig): HostConfig[] => upsertHost(host))
   ipcMain.handle(IPC.hostsDelete, (_e, id: string): HostConfig[] => deleteHost(id))
+
+  ipcMain.handle(IPC.identitiesList, (): Identity[] => loadIdentities())
+  ipcMain.handle(IPC.identitiesUpsert, (_e, identity: Identity): Identity[] => upsertIdentity(identity))
+  ipcMain.handle(IPC.identitiesDelete, (_e, id: string): Identity[] => deleteIdentity(id))
 
   ipcMain.handle(IPC.keysList, () => listSshKeys())
   ipcMain.handle(IPC.knownHostsList, () => listKnownHosts())

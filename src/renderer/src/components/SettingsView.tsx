@@ -1,9 +1,10 @@
 import { useState } from 'react'
-import { THEMES, getThemeId, setThemeId } from '../themes'
+import { THEMES, getThemeId, setThemeId, getAppTheme, setAppTheme, type AppTheme } from '../themes'
 
-/** App settings: terminal theme, encrypted vault sync, and the anti-Termius posture. */
+/** App settings: themes, encrypted vault sync, and the anti-Termius posture. */
 export default function SettingsView(): JSX.Element {
   const [theme, setTheme] = useState(getThemeId())
+  const [appTheme, setAppThemeState] = useState<AppTheme>(getAppTheme())
   const [passphrase, setPassphrase] = useState('')
   const [syncMsg, setSyncMsg] = useState('')
   const [syncErr, setSyncErr] = useState(false)
@@ -46,9 +47,25 @@ export default function SettingsView(): JSX.Element {
   return (
     <div className="section-view">
       <h2>Settings</h2>
-      <p className="section-sub">Applies to newly opened terminals.</p>
 
-      <h3 style={{ margin: '8px 0 10px', fontSize: 14 }}>Terminal theme</h3>
+      <h3 style={{ margin: '8px 0 10px', fontSize: 14 }}>Interface</h3>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+        {(['light', 'dark'] as AppTheme[]).map((t) => (
+          <button
+            key={t}
+            className={`btn sm${appTheme === t ? ' primary' : ''}`}
+            onClick={() => {
+              setAppTheme(t)
+              setAppThemeState(t)
+            }}
+          >
+            {t === 'light' ? '☀ Light' : '🌙 Dark'}
+          </button>
+        ))}
+      </div>
+
+      <h3 style={{ margin: '18px 0 10px', fontSize: 14 }}>Terminal theme</h3>
+      <p className="section-sub" style={{ marginBottom: 8 }}>Applies instantly — open terminals included.</p>
       <div className="theme-grid">
         {THEMES.map((t) => (
           <button

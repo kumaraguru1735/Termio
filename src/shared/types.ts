@@ -5,6 +5,22 @@ export type AuthType = 'password' | 'key' | 'agent'
 export type BackspaceMode = 'default' | 'ctrl-h'
 export type ProxyType = 'none' | 'socks5'
 
+/**
+ * A reusable credential set (Termius-style "identity"). Hosts reference one
+ * by id so a password/key change propagates to every host using it.
+ */
+export interface Identity {
+  id: string
+  /** Display name, e.g. "prod-deploy" or "personal ed25519". */
+  name: string
+  username: string
+  authType: AuthType
+  /** Stored encrypted at rest (same store mechanism as hosts). */
+  password?: string
+  privateKeyPath?: string
+  passphrase?: string
+}
+
 export interface HostConfig {
   id: string
   label: string
@@ -33,6 +49,10 @@ export interface HostConfig {
   proxy?: { type: ProxyType; host: string; port: number }
   /** Environment variables to send before opening the shell (server must allow). */
   env?: Record<string, string>
+  /** Use a saved identity's credentials instead of the inline ones. */
+  identityId?: string
+  /** Reconnect automatically after an unexpected drop / network restore (default on). */
+  autoReconnect?: boolean
 }
 
 export interface KnownHost {
@@ -144,6 +164,10 @@ export const IPC = {
   hostsList: 'hosts:list',
   hostsUpsert: 'hosts:upsert',
   hostsDelete: 'hosts:delete',
+  // Reusable credentials (identities)
+  identitiesList: 'identities:list',
+  identitiesUpsert: 'identities:upsert',
+  identitiesDelete: 'identities:delete',
   // Keys / known hosts (Phase 4)
   keysList: 'keys:list',
   keyBrowse: 'keys:browse',
