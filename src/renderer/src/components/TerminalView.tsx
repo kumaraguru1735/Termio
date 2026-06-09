@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { HostConfig } from '../../../shared/types'
@@ -31,6 +31,14 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
   const sessionIdRef = useRef<string | null>(null)
   /** Set by the connection effect; returns true when a reconnect was started. */
   const reconnectRef = useRef<() => boolean>(() => false)
+  /** Retry the connection with a freshly typed secret. Set by the effect. */
+  const retryAuthRef = useRef<(secret: string, kind: 'password' | 'passphrase') => void>(() => {})
+  /** When set, the pane shows an inline credential prompt. */
+  const [authPrompt, setAuthPrompt] = useState<{
+    message: string
+    kind: 'password' | 'passphrase'
+  } | null>(null)
+  const [authDraft, setAuthDraft] = useState('')
 
   // Keep latest callbacks without re-running the setup effect.
   const onStatusRef = useRef(onStatus)
@@ -170,6 +178,17 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
     const autoReconnect = host.autoReconnect !== false
     const RETRY_DELAYS = [2000, 4000, 8000, 15000, 30000]
 
+    // A correct secret typed after an auth failure is reused for the rest of
+    // this terminal's life (so reconnects don't ask again).
+    let credOverride: { secret: string; kind: 'password' | 'passphrase' } | null = null
+    const hostFor = (): HostConfig => {
+      if (!credOverride) return host
+      const base = { ...host, identityId: undefined }
+      return credOverride.kind === 'passphrase'
+        ? { ...base, passphrase: credOverride.secret }
+        : { ...base, authType: 'password', password: credOverride.secret }
+    }
+
     const scheduleReconnect = (): void => {
       if (disposed || !autoReconnect || !hadConnected) return
       if (!navigator.onLine) {
@@ -190,17 +209,27 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
     const openSession = async (): Promise<void> => {
       if (disposed || connecting || sessionIdRef.current) return
       connecting = true
+      setAuthPrompt(null)
       onStatusRef.current('connecting')
       term.writeln(`\x1b[90mConnecting to ${host.username}@${host.host}:${host.port} …\x1b[0m`)
-      const res = await window.api.ssh.connect(host)
+      const res = await window.api.ssh.connect(hostFor())
       connecting = false
       if (disposed) {
         if (res.ok && res.sessionId) window.api.ssh.close(res.sessionId)
         return
       }
       if (!res.ok || !res.sessionId) {
-        term.writeln(`\r\n\x1b[31m[connection failed: ${res.error ?? 'unknown error'}]\x1b[0m`)
+        const err = res.error ?? 'unknown error'
+        term.writeln(`\r\n\x1b[31m[connection failed: ${err}]\x1b[0m`)
         onStatusRef.current('closed')
+        // Authentication failure → ask the user for the secret and retry,
+        // rather than silently re-trying the same wrong one.
+        if (/auth|password|passphrase|permission denied/i.test(err)) {
+          const kind = /passphrase/i.test(err) ? 'passphrase' : 'password'
+          term.writeln(`\x1b[90m[wrong ${kind} — enter it below to try again]\x1b[0m`)
+          setAuthPrompt({ message: err, kind })
+          return
+        }
         if (autoReconnect && hadConnected) scheduleReconnect()
         else term.writeln('\x1b[90m[press Enter to retry]\x1b[0m')
         return
@@ -248,6 +277,14 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
       return true
     }
 
+    // Called by the inline credential prompt with the freshly typed secret.
+    retryAuthRef.current = (secret, kind) => {
+      if (disposed || connecting || sessionIdRef.current || !secret) return
+      credOverride = { secret, kind }
+      attempts = 0
+      void openSession()
+    }
+
     // Live theme switching for already-open terminals.
     const onTheme = (): void => {
       term.options.theme = getActiveTheme()
@@ -284,10 +321,10 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
     if (!active) return
     const t = setTimeout(() => {
       if (fitRef.current) safeFit(fitRef.current)
-      termRef.current?.focus()
+      if (!authPrompt) termRef.current?.focus()
     }, 0)
     return () => clearTimeout(t)
-  }, [active])
+  }, [active, authPrompt])
 
   return (
     <div className={`term-pane${active ? '' : ' hidden'}`}>
@@ -305,6 +342,33 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
             </button>
           )}
         </div>
+      )}
+
+      {authPrompt && (
+        <form
+          className="auth-prompt"
+          onSubmit={(e) => {
+            e.preventDefault()
+            const secret = authDraft
+            setAuthDraft('')
+            retryAuthRef.current(secret, authPrompt.kind)
+          }}
+        >
+          <div className="auth-title">
+            {authPrompt.kind === 'passphrase' ? 'Key passphrase' : 'Password'} for{' '}
+            <b>{host.username}@{host.host}</b>
+          </div>
+          <input
+            type="password"
+            autoFocus
+            placeholder={authPrompt.kind === 'passphrase' ? 'Key passphrase' : 'Password'}
+            value={authDraft}
+            onChange={(e) => setAuthDraft(e.target.value)}
+          />
+          <button type="submit" className="btn primary sm" disabled={!authDraft}>
+            Connect
+          </button>
+        </form>
       )}
     </div>
   )
