@@ -47,37 +47,49 @@ auto-update, or watched a free tier swallow your saved hosts because the
 
 ### Connectivity
 - ⚡ **SSH terminal** with full PTY, xterm.js, configurable backspace mode
-- 📁 **SFTP** dual-pane file manager (Local ↔ Remote) with breadcrumb, sort, upload/download/rename/delete/mkdir
-- 🌐 **Local port forwarding** — `localhost:N → remote:host:port` through your SSH tunnel
+- 🔄 **Auto-reconnect** — keepalives detect dead links and reconnect with backoff; reconnects instantly when the network comes back; press **Enter** to reconnect a closed session
+- 📁 **SFTP** dual-pane file manager (Local ↔ Remote) with breadcrumb, sort, **drag-and-drop** (between panes and from the OS), upload/download/rename/delete/mkdir/refresh
+- 🌐 **Port forwarding** — **Local (`-L`)**, **Remote (`-R`)**, and **Dynamic SOCKS5 (`-D`)** tunnels
 - 🔁 **SSH jump-host chaining** — connect through a saved host via real `forwardOut`
 - 🧅 **SOCKS5 proxy** — handshake-level support; route any host through a SOCKS5 server
+- 📥 **Import `~/.ssh/config`** — bulk-add your existing hosts
 
 ### Auth
 - 🔑 **Password, private-key (with passphrase), and SSH-agent** authentication
+- 🔐 **Keyboard-interactive (2FA / MFA / OTP)** — the server's challenge prompts appear in-app
+- 🪪 **Reusable identities** — store a credential set once, reference it from many hosts; edit it in one place
+- 🔁 **Wrong-password re-prompt** — failed auth asks again (with an optional *Save to host*) instead of silently retrying
 - 🤝 **Agent forwarding** (per-host toggle)
 - 🛡️ **TOFU host-key verification** — accepts on first sight, refuses on change, with a clear "possible MITM" message
-- 🗝️ **Keychain** view auto-discovers private keys in `~/.ssh`
+- 🗝️ **Keychain** — auto-discovers private keys in `~/.ssh`, generates Ed25519/RSA keys, and manages identities
 - ✅ **Known Hosts** view with per-host fingerprint listing and one-click forget
 
 ### Per-host options *(every field below is real and persisted, not a placeholder)*
 - Address, Label, Parent Group, **Tags** (chips)
 - SSH port, **Backspace mode** (`^?` default or `^H`)
-- Username + Password (with show/hide), or Private key path + passphrase, or Agent
+- Username + Password (with show/hide), or Private key path + passphrase, or Agent, or a saved **Identity**
+- **Auto-reconnect** toggle (on by default)
 - **Startup snippet** — runs once after the shell is ready
 - **Host Chaining** — pick another saved host as a jump host
 - **Proxy** — `none` / `socks5`
 - **Environment variables** — sent with the shell request
 
-### Productivity
+### Terminal & productivity
+- 🎨 **10 terminal themes** — Termio Dark, Dracula, Nord, One Dark, Gruvbox, Tokyo Night, Catppuccin Mocha, Monokai, Solarized Dark/Light — applied **live** to open terminals
+- 🌗 **Light / dark app theme** — the whole UI, not just the terminal
+- 🔤 **Configurable font** family + size, with `Ctrl/⌘ +` `-` `0` zoom
+- 📋 **Copy/paste done right** — bracketed-paste (tmux/vim-safe), copy-on-select, `Ctrl/⌘+C`/`V`, right-click, and **OSC 52** so remote copy-mode reaches your clipboard
+- 🔍 **Find in terminal** (`Ctrl/⌘+F`) and **clickable URLs**
+- 🪟 **Split panes** with drag-resize and **broadcast typing** to both panes
 - 📝 **Snippets** — saved one-liners, "Run" sends to the active terminal
-- 🎨 **Terminal themes** — Termio Dark, Solarized Dark, Dracula, Solarized Light
 - 🆕 **`+` menu** for new tabs: *New Terminal session*, *New SFTP session*, *New Host…*
-- 🪟 **Custom frameless title bar** with native min / maximize / close controls
+- 🪟 **Custom frameless title bar**; single-instance (a second launch focuses the window)
 - 🏷️ Tag chips on host cards, search filter across label/host/username
 - 💾 Tabs persist sessions across nav switches (SSH stays alive while you browse Settings)
 
 ### Privacy & Storage
-- 🔒 Encrypted host store at `~/.config/termio/hosts.dat` via Electron `safeStorage`
+- 🔒 Encrypted host & identity store at `~/.config/termio/` via Electron `safeStorage`
+- 🔐 **Optional app lock** — a scrypt-hashed passphrase screen on launch
 - 📦 **Encrypted vault export/import** (`.tvault`) — scrypt-derived key + AES-256-GCM, integrity-verified
 - 🚫 **No auto-updater** — `electron-updater` is intentionally not a dependency
 - 🚫 No telemetry, no crash reporting, no analytics — anywhere
@@ -115,8 +127,8 @@ auto-update, or watched a free tier swallow your saved hosts because the
 | **Desktop shell** | Electron 33 | Chromium + Node — gives us a real terminal *and* native FS / SSH access in one process model. |
 | **Build & HMR** | electron-vite 2 (Vite 5, esbuild, Rollup) | Sub-second main + preload + renderer builds; renderer HMR. |
 | **UI framework** | React 18 | Familiar component model, simple state lifting. |
-| **Terminal widget** | `@xterm/xterm` 5.5 + `@xterm/addon-fit` | Spec-faithful VT emulator, ANSI/color/resize. |
-| **SSH/SFTP** | `ssh2` (pure-JS) | Reliable, well-maintained, supports `forwardOut`, custom `sock`, hostVerifier callback. |
+| **Terminal widget** | `@xterm/xterm` 5.5 + `addon-fit` / `addon-search` / `addon-web-links` | Spec-faithful VT emulator, ANSI/color/resize, find-in-buffer, clickable URLs. |
+| **SSH/SFTP** | `ssh2` (pure-JS) | Reliable, well-maintained, supports `forwardOut`/`forwardIn`, keyboard-interactive, custom `sock`, hostVerifier callback. |
 | **Encryption (at rest)** | Electron `safeStorage` (OS keyring via libsecret / DPAPI / Keychain) | Zero-config secrets storage backed by the OS. |
 | **Encryption (vault)** | Node `crypto` — scrypt(N=16384, r=8, p=1) + AES‑256‑GCM | Strong KDF, AEAD with tampering detection. |
 | **Networking** | Node `net` (raw TCP for SOCKS5) | Implements the SOCKS5 (RFC 1928) CONNECT path in ~40 lines. |
@@ -146,21 +158,25 @@ to package, easier to back up.
                        ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │ Preload (src/preload/index.ts)                                         │
-│   • exposes window.api.ssh / sftp / hosts / keys / knownHosts /        │
-│     pf / snippets / sync / local / window                              │
+│   • exposes window.api.ssh / sftp / hosts / identities / keys /        │
+│     knownHosts / pf / snippets / sync / local / clipboard / files /    │
+│     kbi / lock / sshConfig / window                                    │
 │   • contextIsolation: true, nodeIntegration: false                     │
 └────────────────────────────────────────────────────────────────────────┘
                        │  ipcMain.handle / ipcMain.on
                        ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │ Main (Node + Electron)                                                 │
-│ ├─ index.ts          ← window, IPC routing, SSH shell sessions         │
-│ ├─ ssh-common.ts     ← buildConnectConfig, makeHostVerifier,           │
-│ │                      SOCKS5 client, establishConnection (chain+sock) │
-│ ├─ store.ts          ← encrypted host store (safeStorage)              │
+│ ├─ index.ts          ← window, IPC routing, SSH shell sessions,        │
+│ │                      single-instance lock, ~/.ssh/config import      │
+│ ├─ ssh-common.ts     ← buildConnectConfig (+identity resolve, 2FA),    │
+│ │                      hostVerifier, SOCKS5 client, establishConnection│
+│ ├─ store.ts          ← encrypted host + identity stores (safeStorage)  │
 │ ├─ knownhosts.ts     ← TOFU known-hosts store + ~/.ssh key discovery   │
 │ ├─ sftp.ts           ← SFTP sessions, dir listing, transfers           │
-│ ├─ portforward.ts    ← net.createServer + client.forwardOut tunnels    │
+│ ├─ portforward.ts    ← -L / -R / -D tunnels (forwardOut/In + SOCKS5)   │
+│ ├─ prompts.ts        ← host-key-changed + keyboard-interactive bridges │
+│ ├─ lock.ts           ← scrypt-hashed app-lock passphrase               │
 │ ├─ snippets.ts       ← JSON store for saved commands                   │
 │ ├─ sync.ts           ← AES-256-GCM .tvault export/import               │
 │ └─ jsonstore.ts      ← tiny userData JSON helper                       │
@@ -179,13 +195,13 @@ to package, easier to back up.
 **`.deb` (Debian, Ubuntu, Mint, Pop!_OS):**
 ```bash
 # Grab from the latest release
-sudo dpkg -i termio_0.1.0_amd64.deb
+sudo dpkg -i termio_0.2.1_amd64.deb
 ```
 
 **AppImage (any modern distro):**
 ```bash
-chmod +x Termio-0.1.0.AppImage
-./Termio-0.1.0.AppImage
+chmod +x Termio-0.2.1.AppImage
+./Termio-0.2.1.AppImage
 ```
 
 ### Build from source
@@ -228,9 +244,12 @@ Quick-connect:
 | Path (Linux) | What it holds |
 |---|---|
 | `~/.config/termio/hosts.dat` | Saved hosts (encrypted via OS keyring) |
+| `~/.config/termio/identities.dat` | Reusable credentials (encrypted via OS keyring) |
 | `~/.config/termio/known_hosts.json` | TOFU host-key fingerprints (not secret — just integrity data) |
 | `~/.config/termio/snippets.json` | Saved snippets |
 | `~/.config/termio/forwards.json` | Port-forwarding rules |
+| `~/.config/termio/lock.json` | App-lock passphrase **hash** (scrypt; no secret stored) |
+| `~/.ssh/config` (read-only) | Source for **Import SSH config** |
 | `~/.ssh/` (read-only) | Auto-discovered key list shown in **Keychain** |
 
 To **reset all local state**, delete `~/.config/termio/`. Termio re-creates
@@ -253,9 +272,14 @@ it on next launch.
   is **refused** with a clear MITM warning. To re-trust, forget the entry
   in **Known Hosts**.
 
+### App lock
+- An optional launch passphrase (Settings → App lock). Only a **scrypt hash**
+  is stored — never the passphrase. It gates the UI on top of the keyring
+  encryption; it is a screen lock, not a second encryption layer.
+
 ### What is **not** secret and stored plaintext
-- Snippets, port-forwarding rules, known-hosts fingerprints. These contain
-  no credentials — just JSON.
+- Snippets, port-forwarding rules, known-hosts fingerprints, the app-lock
+  hash. These contain no credentials — just JSON.
 
 ### Threat model boundaries
 - Termio assumes a trusted local OS session. It does **not** protect against
@@ -338,6 +362,17 @@ npm run dist         # signed-less .deb + AppImage in release/
 - [x] **In-app host-key-changed accept/refuse prompt** — async-callback verifier + Refuse/Trust modal
 - [x] **Built-in SSH key generation in Keychain** — Ed25519 / RSA-4096, optional passphrase
 - [x] **Recent-hosts / activity log** — persistent JSON log of connect/disconnect/host-key events, viewable under **Logs**
+- [x] **Auto-reconnect** — keepalive detection, backoff, network-restore, manual Enter-to-reconnect
+- [x] **Reusable identities** — shared credential sets referenced by hosts
+- [x] **Keyboard-interactive auth** — 2FA / MFA / OTP challenge prompts
+- [x] **Wrong-password re-prompt** with optional save-to-host
+- [x] **Remote (`-R`) & dynamic SOCKS5 (`-D`) port forwarding**
+- [x] **Terminal copy/paste hardening** — bracketed paste, OSC 52, copy-on-select
+- [x] **Find-in-terminal, clickable URLs, broadcast typing across split panes**
+- [x] **Configurable font + zoom, 10 themes, light/dark app theme**
+- [x] **SFTP drag-and-drop + in-pane file management**
+- [x] **Import `~/.ssh/config`**, single-instance focus, optional app lock
+- [ ] Local shell tab (needs `node-pty`), zmodem, Mosh / Telnet / serial
 
 ---
 
