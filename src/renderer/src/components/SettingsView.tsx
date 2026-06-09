@@ -1,10 +1,45 @@
-import { useState } from 'react'
-import { THEMES, getThemeId, setThemeId, getAppTheme, setAppTheme, type AppTheme } from '../themes'
+import { useEffect, useState } from 'react'
+import {
+  THEMES,
+  getThemeId,
+  setThemeId,
+  getAppTheme,
+  setAppTheme,
+  type AppTheme,
+  FONT_CHOICES,
+  getFontFamily,
+  setFontFamily,
+  getFontSize,
+  setFontSize
+} from '../themes'
 
-/** App settings: themes, encrypted vault sync, and the anti-Termius posture. */
+/** App settings: themes, fonts, encrypted vault sync, and the anti-Termius posture. */
 export default function SettingsView(): JSX.Element {
   const [theme, setTheme] = useState(getThemeId())
   const [appTheme, setAppThemeState] = useState<AppTheme>(getAppTheme())
+  const [fontSize, setFontSizeState] = useState(getFontSize())
+  const [fontFamily, setFontFamilyState] = useState(getFontFamily())
+  const [lockEnabled, setLockEnabled] = useState(false)
+  const [lockPass, setLockPass] = useState('')
+  const [lockMsg, setLockMsg] = useState('')
+
+  useEffect(() => {
+    void window.api.lock.status().then((s) => setLockEnabled(s.enabled))
+  }, [])
+
+  const enableLock = async (): Promise<void> => {
+    if (lockPass.length < 4) return setLockMsg('Use at least 4 characters.')
+    await window.api.lock.set(lockPass)
+    setLockEnabled(true)
+    setLockPass('')
+    setLockMsg('App lock enabled — you’ll be asked for it next launch.')
+  }
+  const disableLock = async (): Promise<void> => {
+    await window.api.lock.set(null)
+    setLockEnabled(false)
+    setLockPass('')
+    setLockMsg('App lock disabled.')
+  }
   const [passphrase, setPassphrase] = useState('')
   const [syncMsg, setSyncMsg] = useState('')
   const [syncErr, setSyncErr] = useState(false)
@@ -64,6 +99,23 @@ export default function SettingsView(): JSX.Element {
         ))}
       </div>
 
+      <h3 style={{ margin: '18px 0 10px', fontSize: 14 }}>Terminal font</h3>
+      <div className="pf-form" style={{ maxWidth: 560, marginBottom: 4 }}>
+        <select
+          style={{ flex: 1 }}
+          value={fontFamily}
+          onChange={(e) => { setFontFamily(e.target.value); setFontFamilyState(e.target.value) }}
+        >
+          {FONT_CHOICES.map((f) => (
+            <option key={f} value={f}>{f.replace(/"/g, '').split(',')[0]}</option>
+          ))}
+        </select>
+        <button className="btn sm" onClick={() => { const n = fontSize - 1; setFontSize(n); setFontSizeState(getFontSize()) }}>−</button>
+        <span style={{ minWidth: 54, textAlign: 'center', alignSelf: 'center' }}>{fontSize} px</span>
+        <button className="btn sm" onClick={() => { const n = fontSize + 1; setFontSize(n); setFontSizeState(getFontSize()) }}>+</button>
+      </div>
+      <p className="section-sub" style={{ marginBottom: 12 }}>Ctrl/⌘ with + − 0 also zooms inside a terminal.</p>
+
       <h3 style={{ margin: '18px 0 10px', fontSize: 14 }}>Terminal theme</h3>
       <p className="section-sub" style={{ marginBottom: 8 }}>Applies instantly — open terminals included.</p>
       <div className="theme-grid">
@@ -107,6 +159,29 @@ export default function SettingsView(): JSX.Element {
           {syncMsg}
         </div>
       )}
+
+      <h3 style={{ margin: '22px 0 10px', fontSize: 14 }}>App lock</h3>
+      <p className="section-sub" style={{ marginBottom: 10 }}>
+        Require a passphrase when Termio launches. Your hosts are already encrypted by the OS
+        keyring — this adds a screen lock on top.
+      </p>
+      <div className="pf-form" style={{ maxWidth: 560 }}>
+        {lockEnabled ? (
+          <button className="btn danger-btn sm" onClick={disableLock}>Disable app lock</button>
+        ) : (
+          <>
+            <input
+              type="password"
+              style={{ flex: 1 }}
+              placeholder="New lock passphrase"
+              value={lockPass}
+              onChange={(e) => setLockPass(e.target.value)}
+            />
+            <button className="btn primary sm" onClick={enableLock}>Enable lock</button>
+          </>
+        )}
+      </div>
+      {lockMsg && <div style={{ marginTop: 8, color: 'var(--green)', maxWidth: 560 }}>{lockMsg}</div>}
 
       <h3 style={{ margin: '22px 0 10px', fontSize: 14 }}>Updates &amp; data</h3>
       <div className="list-card" style={{ maxWidth: 560 }}>

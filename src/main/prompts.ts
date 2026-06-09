@@ -1,6 +1,6 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import { randomUUID } from 'crypto'
-import { IPC } from '../shared/types'
+import { IPC, type KbInteractivePrompt } from '../shared/types'
 
 export interface HostKeyChangedAsk {
   promptId: string
@@ -12,6 +12,7 @@ export interface HostKeyChangedAsk {
 }
 
 const pending = new Map<string, (accept: boolean) => void>()
+const pendingKbi = new Map<string, (answers: string[] | null) => void>()
 
 export function registerPromptHandlers(): void {
   ipcMain.on(IPC.hostkeyChangedAnswer, (_e, payload: { promptId: string; accept: boolean }) => {
@@ -19,6 +20,38 @@ export function registerPromptHandlers(): void {
     if (!resolve) return
     pending.delete(payload.promptId)
     resolve(!!payload.accept)
+  })
+
+  ipcMain.on(
+    IPC.kbInteractiveAnswer,
+    (_e, payload: { promptId: string; answers: string[] | null }) => {
+      const resolve = pendingKbi.get(payload.promptId)
+      if (!resolve) return
+      pendingKbi.delete(payload.promptId)
+      resolve(payload.answers)
+    }
+  )
+}
+
+/**
+ * Ask the renderer to answer a keyboard-interactive (2FA/MFA) challenge.
+ * Returns the answers in prompt order, or null if cancelled / no answer in 2m.
+ */
+export function askKeyboardInteractive(
+  p: Omit<KbInteractivePrompt, 'promptId'>
+): Promise<string[] | null> {
+  const win = BrowserWindow.getAllWindows()[0]
+  if (!win) return Promise.resolve(null)
+  const promptId = randomUUID()
+  return new Promise<string[] | null>((resolve) => {
+    pendingKbi.set(promptId, resolve)
+    win.webContents.send(IPC.kbInteractiveAsk, { promptId, ...p } satisfies KbInteractivePrompt)
+    setTimeout(() => {
+      if (pendingKbi.has(promptId)) {
+        pendingKbi.delete(promptId)
+        resolve(null)
+      }
+    }, 120_000)
   })
 }
 

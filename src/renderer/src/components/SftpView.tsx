@@ -42,6 +42,11 @@ export default function SftpView({ host, active, onStatus }: Props): JSX.Element
   const [connected, setConnected] = useState(false)
   const [busy, setBusy] = useState(false)
   const [fatal, setFatal] = useState('')
+  const [namePrompt, setNamePrompt] = useState<{
+    title: string
+    value: string
+    onOk: (v: string) => void
+  } | null>(null)
 
   const loadLocal = async (path: string): Promise<void> => {
     const r = await window.api.local.list(path)
@@ -118,6 +123,46 @@ export default function SftpView({ host, active, onStatus }: Props): JSX.Element
     remote.selected
       ? doDownload([{ remotePath: joinPath(remote.path, remote.selected), name: remote.selected }])
       : Promise.resolve()
+
+  // ---- Remote file management (backend already supports these) ----
+  const remoteMkdir = (): void =>
+    setNamePrompt({
+      title: 'New folder',
+      value: '',
+      onOk: (name) =>
+        void withBusy(async () => {
+          const id = sessionRef.current
+          if (!id || !name.trim()) return
+          const r = await window.api.sftp.mkdir(id, joinPath(remote.path, name.trim()))
+          if (!r.ok) setRemote((p) => ({ ...p, error: r.error ?? 'mkdir failed' }))
+          await loadRemote(remote.path)
+        })
+    })
+  const remoteRename = (): void => {
+    if (!remote.selected) return
+    const from = remote.selected
+    setNamePrompt({
+      title: `Rename "${from}"`,
+      value: from,
+      onOk: (next) =>
+        void withBusy(async () => {
+          const id = sessionRef.current
+          if (!id || !next.trim() || next === from) return
+          const r = await window.api.sftp.rename(id, joinPath(remote.path, from), joinPath(remote.path, next.trim()))
+          if (!r.ok) setRemote((p) => ({ ...p, error: r.error ?? 'rename failed' }))
+          await loadRemote(remote.path)
+        })
+    })
+  }
+  const remoteDelete = (): Promise<void> => withBusy(async () => {
+    const id = sessionRef.current
+    if (!id || !remote.selected) return
+    const entry = remote.entries.find((e) => e.name === remote.selected)
+    if (!window.confirm(`Delete "${remote.selected}"? This cannot be undone.`)) return
+    const r = await window.api.sftp.remove(id, joinPath(remote.path, remote.selected), entry?.type === 'dir')
+    if (!r.ok) setRemote((p) => ({ ...p, error: r.error ?? 'delete failed' }))
+    await loadRemote(remote.path)
+  })
 
   // ---- Drag & drop ----
   type Side = 'local' | 'remote'
@@ -245,9 +290,12 @@ export default function SftpView({ host, active, onStatus }: Props): JSX.Element
         local,
         (p) => void loadLocal(p),
         (n) => setLocal((s) => ({ ...s, selected: n })),
-        <button className="act" disabled={busy || !local.selected} onClick={upload}>
-          Upload →
-        </button>
+        <>
+          <button className="act ghost" title="Refresh" onClick={() => void loadLocal(local.path)}>⟳</button>
+          <button className="act" disabled={busy || !local.selected} onClick={upload}>
+            Upload →
+          </button>
+        </>
       )}
       {connected ? (
         renderFm(
@@ -256,9 +304,15 @@ export default function SftpView({ host, active, onStatus }: Props): JSX.Element
           remote,
           (p) => void loadRemote(p),
           (n) => setRemote((s) => ({ ...s, selected: n })),
-          <button className="act" disabled={busy || !remote.selected} onClick={download}>
-            ← Download
-          </button>
+          <>
+            <button className="act ghost" title="New folder" onClick={remoteMkdir}>＋ Folder</button>
+            <button className="act ghost" disabled={busy || !remote.selected} title="Rename" onClick={remoteRename}>Rename</button>
+            <button className="act ghost danger-btn" disabled={busy || !remote.selected} title="Delete" onClick={() => void remoteDelete()}>Delete</button>
+            <button className="act ghost" title="Refresh" onClick={() => void loadRemote(remote.path)}>⟳</button>
+            <button className="act" disabled={busy || !remote.selected} onClick={download}>
+              ← Download
+            </button>
+          </>
         )
       ) : (
         <div className="sftp-side">
@@ -271,6 +325,35 @@ export default function SftpView({ host, active, onStatus }: Props): JSX.Element
                 : `Opening SFTP to ${host.username}@${host.host}…`}
             </p>
           </div>
+        </div>
+      )}
+
+      {namePrompt && (
+        <div className="modal-backdrop" onMouseDown={() => setNamePrompt(null)}>
+          <form
+            className="modal"
+            style={{ width: 360 }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onSubmit={(e) => {
+              e.preventDefault()
+              const v = namePrompt.value
+              setNamePrompt(null)
+              namePrompt.onOk(v)
+            }}
+          >
+            <h3 style={{ marginBottom: 12 }}>{namePrompt.title}</h3>
+            <div className="fld">
+              <input
+                autoFocus
+                value={namePrompt.value}
+                onChange={(e) => setNamePrompt((p) => (p ? { ...p, value: e.target.value } : p))}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+              <button type="button" className="btn sm" onClick={() => setNamePrompt(null)}>Cancel</button>
+              <button type="submit" className="btn primary sm">OK</button>
+            </div>
+          </form>
         </div>
       )}
     </div>

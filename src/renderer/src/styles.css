@@ -412,6 +412,58 @@ input { font-family: inherit; }
 }
 .auth-prompt input:focus { border-color: var(--blue); }
 .auth-prompt .btn { align-self: flex-end; }
+.auth-prompt .auth-save { display: flex; align-items: center; gap: 7px; color: #aab0bd; font-size: 12px; cursor: pointer; }
+.auth-prompt .auth-save input { width: auto; }
+
+/* Terminal find bar (Ctrl+F). */
+.term-search {
+  position: absolute; top: 8px; right: 12px; z-index: 45;
+  display: flex; align-items: center; gap: 4px;
+  background: #1c2230; border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 9px; padding: 5px 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.term-search input {
+  background: #11151f; border: 1px solid rgba(255,255,255,0.12); color: #e6e8ec;
+  border-radius: 6px; padding: 5px 9px; font-size: 12.5px; outline: none; width: 180px;
+}
+.term-search input:focus { border-color: var(--blue); }
+.ts-btn {
+  background: none; border: none; color: #c7ccd6; width: 24px; height: 24px;
+  border-radius: 6px; font-size: 13px; display: inline-flex; align-items: center; justify-content: center;
+}
+.ts-btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
+
+/* Broadcast-typing toggle on split terminals. */
+.bcast-toggle {
+  position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 46;
+  background: rgba(28,34,48,0.92); border: 1px solid rgba(255,255,255,0.14); color: #c7ccd6;
+  border-radius: 8px; padding: 4px 11px; font-size: 11.5px; font-weight: 600;
+}
+.bcast-toggle:hover { background: rgba(40,48,66,0.95); color: #fff; }
+.bcast-toggle.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+/* App lock screen. */
+.lock-screen {
+  position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
+  background: var(--topbar);
+}
+.lock-card {
+  display: flex; flex-direction: column; align-items: center; gap: 10px; width: 320px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 30px 28px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4); text-align: center;
+}
+.lock-card .lock-ic {
+  width: 52px; height: 52px; border-radius: 14px; background: var(--field);
+  display: flex; align-items: center; justify-content: center; color: var(--blue);
+}
+.lock-card .lock-ic svg { width: 26px; height: 26px; }
+.lock-card h2 { font-size: 17px; }
+.lock-card input {
+  width: 100%; background: var(--field); border: 1px solid var(--border); color: var(--field-text);
+  border-radius: 9px; padding: 10px 12px; font-size: 13px; outline: none;
+}
+.lock-card input:focus { border-color: var(--blue); }
+.lock-card .btn { width: 100%; }
 
 /* Two-pane split layout */
 .split-row { position: absolute; inset: 0; display: flex; background: var(--ink); }
@@ -458,8 +510,12 @@ input { font-family: inherit; }
 .sftp-bar .loc { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; }
 .sftp-bar .loc svg { width: 18px; height: 18px; color: var(--blue); }
 .sftp-bar .spacer { flex: 1; }
-.sftp-bar .act { background: none; border: none; color: #515763; font-weight: 600; font-size: 12.5px; padding: 6px 10px; border-radius: 7px; display: inline-flex; align-items: center; gap: 5px; }
+.sftp-bar .act { background: none; border: none; color: var(--nav-text); font-weight: 600; font-size: 12.5px; padding: 6px 10px; border-radius: 7px; display: inline-flex; align-items: center; gap: 5px; }
 .sftp-bar .act:hover { background: var(--nav-hover); }
+.sftp-bar .act.ghost { color: var(--nav-dim); font-weight: 500; padding: 6px 8px; }
+.sftp-bar .act.ghost:hover { background: var(--nav-hover); color: var(--nav-text); }
+.sftp-bar .act.danger-btn:hover { color: var(--red); }
+.sftp-bar .act:disabled { opacity: 0.4; cursor: default; }
 .crumbs { display: flex; align-items: center; gap: 4px; padding: 4px 18px 8px; color: var(--nav-text); font-size: 13px; flex-wrap: wrap; }
 .crumbs .nav-btn { background: none; border: none; color: var(--nav-dim); border-radius: 5px; padding: 2px 6px; }
 .crumbs .nav-btn:hover { background: var(--nav-hover); color: var(--nav-text); }

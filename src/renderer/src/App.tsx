@@ -14,7 +14,9 @@ import SnippetsView from './components/SnippetsView'
 import SettingsView from './components/SettingsView'
 import LogsView from './components/LogsView'
 import HostKeyChangedDialog, { type HostKeyPrompt } from './components/HostKeyChangedDialog'
-import type { HostConfig } from '../../shared/types'
+import KbInteractiveDialog from './components/KbInteractiveDialog'
+import LockScreen from './components/LockScreen'
+import type { HostConfig, KbInteractivePrompt } from '../../shared/types'
 
 type TabKind = 'terminal' | 'sftp'
 interface Tab {
@@ -40,14 +42,31 @@ export default function App(): JSX.Element {
   const [openAs, setOpenAs] = useState<TabKind>('terminal')
   /** Queue of pending host-key-changed prompts (one shown at a time). */
   const [hkPrompts, setHkPrompts] = useState<HostKeyPrompt[]>([])
+  /** Queue of pending keyboard-interactive (2FA) prompts. */
+  const [kbiPrompts, setKbiPrompts] = useState<KbInteractivePrompt[]>([])
+  /** null = checking, true = locked (show lock screen), false = unlocked. */
+  const [locked, setLocked] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    void window.api.lock.status().then((s) => setLocked(s.enabled))
+  }, [])
 
   useEffect(() => {
     return window.api.hostkey.onAsk((p) => setHkPrompts((q) => [...q, p]))
   }, [])
 
+  useEffect(() => {
+    return window.api.kbi.onAsk((p) => setKbiPrompts((q) => [...q, p]))
+  }, [])
+
   const answerHostKey = (promptId: string, accept: boolean): void => {
     window.api.hostkey.answer(promptId, accept)
     setHkPrompts((q) => q.filter((p) => p.promptId !== promptId))
+  }
+
+  const answerKbi = (promptId: string, answers: string[] | null): void => {
+    window.api.kbi.answer(promptId, answers)
+    setKbiPrompts((q) => q.filter((p) => p.promptId !== promptId))
   }
 
   useEffect(() => {
@@ -155,6 +174,13 @@ export default function App(): JSX.Element {
     setHosts(await window.api.hosts.remove(id))
   }
 
+  const importSshConfig = async (): Promise<void> => {
+    const r = await window.api.sshConfig.import()
+    if (r.ok) setHosts(await window.api.hosts.list())
+    // eslint-disable-next-line no-alert
+    alert(r.ok ? `Imported ${r.added} host(s) from ~/.ssh/config.` : r.error ?? 'Import failed.')
+  }
+
   const selectNav = (s: NavSection): void => {
     setView(s)
     setShowingTab(false)
@@ -180,6 +206,9 @@ export default function App(): JSX.Element {
     : undefined
 
   const sectionVisible = (s: NavSection): boolean => !showingTab && view === s
+
+  if (locked === null) return <div className="app" />
+  if (locked) return <LockScreen onUnlock={() => setLocked(false)} />
 
   return (
     <div className="app">
@@ -291,6 +320,7 @@ export default function App(): JSX.Element {
                 setView('hosts')
               }}
               onDelete={removeHost}
+              onImportConfig={importSshConfig}
             />
 
             {sectionVisible('keychain') && <KeychainView />}
@@ -317,6 +347,10 @@ export default function App(): JSX.Element {
 
       {hkPrompts.length > 0 && (
         <HostKeyChangedDialog prompt={hkPrompts[0]} onAnswer={answerHostKey} />
+      )}
+
+      {kbiPrompts.length > 0 && (
+        <KbInteractiveDialog prompt={kbiPrompts[0]} onAnswer={answerKbi} />
       )}
     </div>
   )

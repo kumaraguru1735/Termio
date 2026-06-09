@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron'
-import { existsSync, renameSync } from 'fs'
+import { existsSync, renameSync, readFileSync } from 'fs'
+import { homedir } from 'os'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { Client, type ClientChannel } from 'ssh2'
@@ -14,6 +15,7 @@ import { registerSyncHandlers } from './sync'
 import { registerActivityHandlers, logHost } from './activity'
 import { registerPromptHandlers } from './prompts'
 import { registerKeyGenHandlers } from './keygen'
+import { registerLockHandlers } from './lock'
 
 /** Live SSH sessions keyed by sessionId. */
 interface Session {
@@ -143,6 +145,61 @@ function registerSshHandlers(): void {
   })
 }
 
+/** Parse ~/.ssh/config and add any concrete Host entries not already saved. */
+function importSshConfig(): { ok: boolean; added: number; error?: string } {
+  const path = join(homedir(), '.ssh', 'config')
+  if (!existsSync(path)) return { ok: false, added: 0, error: 'No ~/.ssh/config found' }
+  let text: string
+  try {
+    text = readFileSync(path, 'utf8')
+  } catch (err) {
+    return { ok: false, added: 0, error: (err as Error).message }
+  }
+  const expand = (p: string): string => (p.startsWith('~') ? join(homedir(), p.slice(1)) : p)
+
+  interface Block { patterns: string[]; fields: Record<string, string> }
+  const blocks: Block[] = []
+  let cur: Block | null = null
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line || line.startsWith('#')) continue
+    const m = line.match(/^(\S+)[\s=]+(.+)$/)
+    if (!m) continue
+    const key = m[1].toLowerCase()
+    const val = m[2].trim()
+    if (key === 'host') {
+      if (cur) blocks.push(cur)
+      cur = { patterns: val.split(/\s+/), fields: {} }
+    } else if (cur) {
+      cur.fields[key] = val
+    }
+  }
+  if (cur) blocks.push(cur)
+
+  const existing = loadHosts()
+  let added = 0
+  for (const b of blocks) {
+    const name = b.patterns.find((p) => !p.includes('*') && !p.includes('?'))
+    if (!name) continue
+    if (existing.some((h) => h.label === name)) continue
+    const keyFile = b.fields['identityfile']
+    const cfg: HostConfig = {
+      id: randomUUID(),
+      label: name,
+      host: b.fields['hostname'] || name,
+      port: parseInt(b.fields['port'] || '22', 10) || 22,
+      username: b.fields['user'] || 'root',
+      authType: keyFile ? 'key' : 'agent',
+      privateKeyPath: keyFile ? expand(keyFile) : undefined,
+      group: 'Imported'
+    }
+    upsertHost(cfg)
+    existing.push(cfg)
+    added++
+  }
+  return { ok: true, added }
+}
+
 function registerHostHandlers(): void {
   ipcMain.handle(IPC.hostsList, (): HostConfig[] => loadHosts())
   ipcMain.handle(IPC.hostsUpsert, (_e, host: HostConfig): HostConfig[] => upsertHost(host))
@@ -151,6 +208,8 @@ function registerHostHandlers(): void {
   ipcMain.handle(IPC.identitiesList, (): Identity[] => loadIdentities())
   ipcMain.handle(IPC.identitiesUpsert, (_e, identity: Identity): Identity[] => upsertIdentity(identity))
   ipcMain.handle(IPC.identitiesDelete, (_e, id: string): Identity[] => deleteIdentity(id))
+
+  ipcMain.handle(IPC.sshConfigImport, () => importSshConfig())
 
   ipcMain.handle(IPC.keysList, () => listSshKeys())
   ipcMain.handle(IPC.knownHostsList, () => listKnownHosts())
@@ -196,6 +255,7 @@ if (!app.requestSingleInstanceLock()) {
     registerActivityHandlers()
     registerPromptHandlers()
     registerKeyGenHandlers()
+    registerLockHandlers()
     createWindow()
 
     app.on('activate', () => {

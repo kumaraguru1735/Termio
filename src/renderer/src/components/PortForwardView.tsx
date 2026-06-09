@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { HostConfig, PortForward } from '../../../shared/types'
+import type { ForwardKind, HostConfig, PortForward } from '../../../shared/types'
 import { IconTrash } from './icons'
 
 interface Props {
@@ -9,11 +9,19 @@ interface Props {
 const blank = (hostId: string): PortForward => ({
   id: crypto.randomUUID(),
   name: '',
+  kind: 'local',
   hostId,
   bindPort: 8080,
   destHost: '127.0.0.1',
   destPort: 80
 })
+
+const describe = (r: PortForward): string => {
+  const kind = r.kind ?? 'local'
+  if (kind === 'remote') return `server:${r.bindPort} → ${r.destHost}:${r.destPort} (reverse)`
+  if (kind === 'dynamic') return `socks5 127.0.0.1:${r.bindPort}`
+  return `127.0.0.1:${r.bindPort} → ${r.destHost}:${r.destPort}`
+}
 
 /** Local port-forwarding manager: 127.0.0.1:bindPort → destHost:destPort via a host's SSH tunnel. */
 export default function PortForwardView({ hosts }: Props): JSX.Element {
@@ -57,10 +65,21 @@ export default function PortForwardView({ hosts }: Props): JSX.Element {
   return (
     <div className="section-view">
       <h2>Port Forwarding</h2>
-      <p className="section-sub">Local forwards tunnel a port on your machine to a destination reachable from the SSH server.</p>
+      <p className="section-sub">
+        <b>Local</b> (-L): expose a remote service on your machine. <b>Remote</b> (-R): expose a
+        local service on the server. <b>Dynamic</b> (-D): a SOCKS5 proxy through the tunnel.
+      </p>
       {error && <div className="error-text">{error}</div>}
 
       <div className="pf-form">
+        <select
+          value={draft.kind ?? 'local'}
+          onChange={(e) => setDraft({ ...draft, kind: e.target.value as ForwardKind })}
+        >
+          <option value="local">Local -L</option>
+          <option value="remote">Remote -R</option>
+          <option value="dynamic">Dynamic -D</option>
+        </select>
         <input
           style={{ flex: 2 }}
           placeholder="Name"
@@ -76,23 +95,27 @@ export default function PortForwardView({ hosts }: Props): JSX.Element {
         </select>
         <input
           style={{ width: 80 }}
-          placeholder="Local"
+          placeholder={draft.kind === 'remote' ? 'Remote' : 'Local'}
           value={draft.bindPort}
           onChange={(e) => setDraft({ ...draft, bindPort: parseInt(e.target.value) || 0 })}
         />
-        <span className="pf-arrow">→</span>
-        <input
-          style={{ flex: 1 }}
-          placeholder="dest host"
-          value={draft.destHost}
-          onChange={(e) => setDraft({ ...draft, destHost: e.target.value })}
-        />
-        <input
-          style={{ width: 70 }}
-          placeholder="port"
-          value={draft.destPort}
-          onChange={(e) => setDraft({ ...draft, destPort: parseInt(e.target.value) || 0 })}
-        />
+        {draft.kind !== 'dynamic' && (
+          <>
+            <span className="pf-arrow">→</span>
+            <input
+              style={{ flex: 1 }}
+              placeholder="dest host"
+              value={draft.destHost}
+              onChange={(e) => setDraft({ ...draft, destHost: e.target.value })}
+            />
+            <input
+              style={{ width: 70 }}
+              placeholder="port"
+              value={draft.destPort}
+              onChange={(e) => setDraft({ ...draft, destPort: parseInt(e.target.value) || 0 })}
+            />
+          </>
+        )}
         <button className="btn primary sm" onClick={add}>
           Add
         </button>
@@ -108,7 +131,7 @@ export default function PortForwardView({ hosts }: Props): JSX.Element {
               <div className="list-meta">
                 <div className="list-name">{r.name}</div>
                 <div className="list-sub mono">
-                  127.0.0.1:{r.bindPort} → {r.destHost}:{r.destPort} · via {hostLabel(r.hostId)}
+                  {describe(r)} · via {hostLabel(r.hostId)}
                 </div>
               </div>
               <button className={`btn sm ${on ? '' : 'primary'}`} onClick={() => toggle(r)}>

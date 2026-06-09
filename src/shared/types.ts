@@ -89,14 +89,22 @@ export interface SftpResult {
   error?: string
 }
 
+export type ForwardKind = 'local' | 'remote' | 'dynamic'
+
 export interface PortForward {
   id: string
   name: string
+  /**
+   * local   (-L): listen on bindPort locally → destHost:destPort via the server
+   * remote  (-R): server listens on bindPort → destHost:destPort on this machine
+   * dynamic (-D): SOCKS5 proxy on bindPort, destination chosen per-connection
+   */
+  kind?: ForwardKind
   /** Which saved host provides the SSH tunnel. */
   hostId: string
-  /** Local listen port on 127.0.0.1. */
+  /** Listen port (local for -L/-D, remote for -R). */
   bindPort: number
-  /** Destination reachable from the SSH server. */
+  /** Destination reachable from the other side (unused for dynamic). */
   destHost: string
   destPort: number
 }
@@ -209,6 +217,24 @@ export const IPC = {
   // Host-key changed prompt (main → renderer / renderer → main)
   hostkeyChangedAsk: 'hostkey:changed-ask',
   hostkeyChangedAnswer: 'hostkey:changed-answer',
+  // Keyboard-interactive auth prompt (2FA/MFA) (main → renderer / renderer → main)
+  kbInteractiveAsk: 'kbi:ask',
+  kbInteractiveAnswer: 'kbi:answer',
   // SSH key generation
-  keyGenerate: 'keys:generate'
+  keyGenerate: 'keys:generate',
+  // Import hosts from ~/.ssh/config
+  sshConfigImport: 'sshconfig:import',
+  // App lock (master passphrase screen)
+  lockStatus: 'lock:status',
+  lockSet: 'lock:set',
+  lockVerify: 'lock:verify'
 } as const
+
+export interface KbInteractivePrompt {
+  promptId: string
+  host: string
+  label?: string
+  name: string
+  instructions: string
+  prompts: { prompt: string; echo: boolean }[]
+}

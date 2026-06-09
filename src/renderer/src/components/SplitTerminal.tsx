@@ -28,6 +28,10 @@ export default function SplitTerminal({
   onClosePane
 }: Props): JSX.Element {
   const [leftPct, setLeftPct] = useState(50)
+  const [broadcast, setBroadcast] = useState(false)
+  const broadcastRef = useRef(false)
+  broadcastRef.current = broadcast
+  const busRef = useRef<EventTarget>(new EventTarget())
   const containerRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ startX: number; startPct: number; width: number } | null>(null)
 
@@ -73,6 +77,13 @@ export default function SplitTerminal({
   const [a, b] = paneIds
   return (
     <div className={`split-row${active ? '' : ' hidden'}`} ref={containerRef}>
+      <button
+        className={`bcast-toggle${broadcast ? ' on' : ''}`}
+        title="Broadcast typing to both panes"
+        onClick={() => setBroadcast((v) => !v)}
+      >
+        ⌨ Broadcast {broadcast ? 'on' : 'off'}
+      </button>
       <div className="split-pane" style={{ flex: `${leftPct} 1 0` }}>
         <TerminalView
           key={a}
@@ -81,6 +92,8 @@ export default function SplitTerminal({
           onStatus={onStatus}
           onSession={onSession}
           onClosePane={() => onClosePane(a)}
+          bus={busRef.current}
+          broadcastRef={broadcastRef}
         />
       </div>
       <div
@@ -99,6 +112,8 @@ export default function SplitTerminal({
           // tab's status reflects the primary pane only (simpler model for v1).
           onStatus={() => {}}
           onClosePane={() => onClosePane(b)}
+          bus={busRef.current}
+          broadcastRef={broadcastRef}
         />
       </div>
     </div>

@@ -11,7 +11,8 @@ import {
   type PortForward,
   type Snippet,
   type SyncResult,
-  type ActivityRecord
+  type ActivityRecord,
+  type KbInteractivePrompt
 } from '../shared/types'
 
 const api = {
@@ -158,6 +159,31 @@ const api = {
     answer: (promptId: string, accept: boolean): void => {
       ipcRenderer.send(IPC.hostkeyChangedAnswer, { promptId, accept })
     }
+  },
+
+  kbi: {
+    /** Subscribe to incoming keyboard-interactive (2FA) challenges. */
+    onAsk: (cb: (p: KbInteractivePrompt) => void): (() => void) => {
+      const h = (_e: IpcRendererEvent, p: unknown): void => cb(p as KbInteractivePrompt)
+      ipcRenderer.on(IPC.kbInteractiveAsk, h)
+      return () => ipcRenderer.removeListener(IPC.kbInteractiveAsk, h)
+    },
+    answer: (promptId: string, answers: string[] | null): void => {
+      ipcRenderer.send(IPC.kbInteractiveAnswer, { promptId, answers })
+    }
+  },
+
+  sshConfig: {
+    import: (): Promise<{ ok: boolean; added: number; error?: string }> =>
+      ipcRenderer.invoke(IPC.sshConfigImport)
+  },
+
+  lock: {
+    status: (): Promise<{ enabled: boolean }> => ipcRenderer.invoke(IPC.lockStatus),
+    set: (passphrase: string | null): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(IPC.lockSet, passphrase),
+    verify: (passphrase: string): Promise<{ ok: boolean }> =>
+      ipcRenderer.invoke(IPC.lockVerify, passphrase)
   }
 }
 

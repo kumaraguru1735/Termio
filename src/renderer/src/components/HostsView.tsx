@@ -24,6 +24,7 @@ interface Props {
   onNewHost: () => void
   onEdit: (host: HostConfig) => void
   onDelete: (id: string) => void
+  onImportConfig: () => void
 }
 
 /** Main Hosts view: search + toolbar + host cards grid (Termius layout). */
@@ -36,7 +37,8 @@ export default function HostsView({
   onQuickConnect,
   onNewHost,
   onEdit,
-  onDelete
+  onDelete,
+  onImportConfig
 }: Props): JSX.Element {
   const [query, setQuery] = useState('')
 
@@ -84,6 +86,9 @@ export default function HostsView({
         <button className="btn-newhost" onClick={onNewHost}>
           + New host
           <IconChevronDown style={{ width: 13, height: 13 }} />
+        </button>
+        <button className="tool-pill" title="Import hosts from ~/.ssh/config" onClick={onImportConfig}>
+          Import SSH config
         </button>
         <button
           className={`tool-pill${openAs === 'terminal' ? ' active' : ''}`}

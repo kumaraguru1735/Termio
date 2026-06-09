@@ -253,6 +253,37 @@ export function getActiveTheme(): ITheme {
   return (THEMES.find((t) => t.id === getThemeId()) ?? THEMES[0]).theme
 }
 
+// ---- Terminal font ----
+
+export const DEFAULT_FONT_FAMILY = 'Menlo, "DejaVu Sans Mono", "Ubuntu Mono", monospace'
+export const FONT_CHOICES = [
+  DEFAULT_FONT_FAMILY,
+  '"JetBrains Mono", monospace',
+  '"Fira Code", monospace',
+  '"Cascadia Code", monospace',
+  '"Source Code Pro", monospace',
+  'Consolas, monospace',
+  '"Courier New", monospace'
+]
+const FONT_SIZE_KEY = 'termio.fontSize'
+const FONT_FAMILY_KEY = 'termio.fontFamily'
+
+export function getFontSize(): number {
+  const n = parseInt(localStorage.getItem(FONT_SIZE_KEY) ?? '', 10)
+  return Number.isFinite(n) && n >= 8 && n <= 32 ? n : 13
+}
+export function setFontSize(n: number): void {
+  localStorage.setItem(FONT_SIZE_KEY, String(Math.min(32, Math.max(8, Math.round(n)))))
+  window.dispatchEvent(new Event(THEME_EVENT))
+}
+export function getFontFamily(): string {
+  return localStorage.getItem(FONT_FAMILY_KEY) || DEFAULT_FONT_FAMILY
+}
+export function setFontFamily(s: string): void {
+  localStorage.setItem(FONT_FAMILY_KEY, s || DEFAULT_FONT_FAMILY)
+  window.dispatchEvent(new Event(THEME_EVENT))
+}
+
 // ---- App-wide UI theme (light/dark chrome around the terminal) ----
 
 export type AppTheme = 'light' | 'dark'

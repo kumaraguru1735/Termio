@@ -8,7 +8,7 @@ import {
   listKnownHosts,
   fingerprintOf
 } from './knownhosts'
-import { askHostKeyChanged } from './prompts'
+import { askHostKeyChanged, askKeyboardInteractive } from './prompts'
 import { logHost } from './activity'
 import { loadIdentities } from './store'
 
@@ -40,7 +40,9 @@ export function buildConnectConfig(host: HostConfig): ConnectConfig {
     readyTimeout: 20000,
     // Detect dead links quickly so auto-reconnect can kick in (~30s worst case).
     keepaliveInterval: 10000,
-    keepaliveCountMax: 3
+    keepaliveCountMax: 3,
+    // Allow servers that require 2FA/MFA challenge-response (OTP, etc.).
+    tryKeyboard: true
   }
   if (cfg.authType === 'agent') {
     base.agent = process.env.SSH_AUTH_SOCK
@@ -178,6 +180,19 @@ export async function establishConnection(
   ;(config as ConnectConfig).hostVerifier = hv.verifier as unknown as ConnectConfig['hostVerifier']
 
   const client = new Client()
+  // 2FA / MFA: relay the server's challenge prompts to the UI and answer them.
+  client.on(
+    'keyboard-interactive',
+    (name, instructions, _lang, prompts, finish) => {
+      void askKeyboardInteractive({
+        host: cfg.host,
+        label: cfg.label,
+        name: name || '',
+        instructions: instructions || '',
+        prompts: prompts.map((p) => ({ prompt: p.prompt, echo: p.echo !== false }))
+      }).then((answers) => finish(answers ?? []))
+    }
+  )
   return await new Promise<Client>((resolve, reject) => {
     let settled = false
     client

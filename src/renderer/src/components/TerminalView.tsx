@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { SearchAddon } from '@xterm/addon-search'
+import { WebLinksAddon } from '@xterm/addon-web-links'
 import type { HostConfig } from '../../../shared/types'
-import { getActiveTheme, THEME_EVENT } from '../themes'
+import { getActiveTheme, getFontFamily, getFontSize, setFontSize, THEME_EVENT } from '../themes'
 import { IconSplit, IconCross } from './icons'
 
 export type TabStatus = 'pending' | 'connecting' | 'connected' | 'closed'
@@ -17,6 +19,10 @@ interface Props {
   onSplit?: () => void
   /** When provided, renders a "close pane" overlay button that calls this. */
   onClosePane?: () => void
+  /** Shared bus for broadcasting typed input to sibling split panes. */
+  bus?: EventTarget
+  /** Live flag: when true, local input is broadcast to the whole bus. */
+  broadcastRef?: { current: boolean }
 }
 
 /**
@@ -24,21 +30,27 @@ interface Props {
  * and bridges keystrokes/output/resize over IPC. Stays mounted while
  * inactive so scrollback survives tab switches.
  */
-export default function TerminalView({ host, active, onStatus, onSession, onSplit, onClosePane }: Props): JSX.Element {
+export default function TerminalView({ host, active, onStatus, onSession, onSplit, onClosePane, bus, broadcastRef }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const sessionIdRef = useRef<string | null>(null)
+  const searchRef = useRef<SearchAddon | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
   /** Set by the connection effect; returns true when a reconnect was started. */
   const reconnectRef = useRef<() => boolean>(() => false)
   /** Retry the connection with a freshly typed secret. Set by the effect. */
-  const retryAuthRef = useRef<(secret: string, kind: 'password' | 'passphrase') => void>(() => {})
+  const retryAuthRef = useRef<(secret: string, kind: 'password' | 'passphrase', save: boolean) => void>(
+    () => {}
+  )
   /** When set, the pane shows an inline credential prompt. */
   const [authPrompt, setAuthPrompt] = useState<{
     message: string
     kind: 'password' | 'passphrase'
   } | null>(null)
   const [authDraft, setAuthDraft] = useState('')
+  const [authSave, setAuthSave] = useState(false)
 
   // Keep latest callbacks without re-running the setup effect.
   const onStatusRef = useRef(onStatus)
@@ -48,8 +60,8 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
 
   useEffect(() => {
     const term = new Terminal({
-      fontFamily: 'Menlo, "DejaVu Sans Mono", "Ubuntu Mono", monospace',
-      fontSize: 13,
+      fontFamily: getFontFamily(),
+      fontSize: getFontSize(),
       cursorBlink: true,
       theme: getActiveTheme(),
       allowProposedApi: true,
@@ -124,6 +136,28 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
         paste()
         return false
       }
+      // Find: Ctrl/⌘+F opens the search bar.
+      if (ctrlOrMeta && key === 'f') {
+        ev.preventDefault()
+        setSearchOpen(true)
+        return false
+      }
+      // Zoom: Ctrl/⌘ with +, -, 0 (reset). Persisted + applied to all terminals.
+      if (ctrlOrMeta && (key === '=' || key === '+' || ev.key === '+')) {
+        ev.preventDefault()
+        setFontSize(getFontSize() + 1)
+        return false
+      }
+      if (ctrlOrMeta && (key === '-' || ev.key === '_')) {
+        ev.preventDefault()
+        setFontSize(getFontSize() - 1)
+        return false
+      }
+      if (ctrlOrMeta && key === '0') {
+        ev.preventDefault()
+        setFontSize(13)
+        return false
+      }
       // Enter on a closed session = quick reconnect.
       if (ev.key === 'Enter' && !ev.ctrlKey && !ev.altKey && !ev.metaKey && !sessionIdRef.current) {
         if (reconnectRef.current()) {
@@ -153,11 +187,15 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
     const containerEl = containerRef.current!
     containerEl.addEventListener('contextmenu', onContextMenu)
     const fit = new FitAddon()
+    const search = new SearchAddon()
     term.loadAddon(fit)
+    term.loadAddon(search)
+    term.loadAddon(new WebLinksAddon())
     term.open(containerRef.current!)
     safeFit(fit)
     termRef.current = term
     fitRef.current = fit
+    searchRef.current = search
 
     onStatusRef.current('connecting')
 
@@ -169,11 +207,18 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
     let unsubData: (() => void) | undefined
     let unsubClosed: (() => void) | undefined
 
-    // Registered once — writes to whichever session is current, so a
-    // reconnect never double-sends keystrokes.
-    term.onData((d) => {
+    const writeSession = (d: string): void => {
       if (sessionIdRef.current) window.api.ssh.write(sessionIdRef.current, d)
+    }
+    // Registered once — writes to whichever session is current, so a
+    // reconnect never double-sends keystrokes. When broadcasting, fan the
+    // input out to every sibling pane (including this one) via the bus.
+    term.onData((d) => {
+      if (broadcastRef?.current && bus) bus.dispatchEvent(new CustomEvent('bcast', { detail: d }))
+      else writeSession(d)
     })
+    const onBus = (e: Event): void => writeSession((e as CustomEvent<string>).detail)
+    bus?.addEventListener('bcast', onBus)
 
     const autoReconnect = host.autoReconnect !== false
     const RETRY_DELAYS = [2000, 4000, 8000, 15000, 30000]
@@ -181,6 +226,7 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
     // A correct secret typed after an auth failure is reused for the rest of
     // this terminal's life (so reconnects don't ask again).
     let credOverride: { secret: string; kind: 'password' | 'passphrase' } | null = null
+    let saveOnSuccess = false
     const hostFor = (): HostConfig => {
       if (!credOverride) return host
       const base = { ...host, identityId: undefined }
@@ -241,6 +287,18 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
       onStatusRef.current('connected')
       onSessionRef.current?.(id)
 
+      // Persist a corrected credential to the host if the user opted in.
+      if (saveOnSuccess && credOverride) {
+        const updated: HostConfig = { ...host, identityId: undefined }
+        if (credOverride.kind === 'passphrase') updated.passphrase = credOverride.secret
+        else {
+          updated.authType = 'password'
+          updated.password = credOverride.secret
+        }
+        void window.api.hosts.upsert(updated)
+        saveOnSuccess = false
+      }
+
       unsubData = window.api.ssh.onData(id, (d) => term.write(d))
       unsubClosed = window.api.ssh.onClosed(id, () => {
         unsubData?.()
@@ -278,16 +336,21 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
     }
 
     // Called by the inline credential prompt with the freshly typed secret.
-    retryAuthRef.current = (secret, kind) => {
+    retryAuthRef.current = (secret, kind, save) => {
       if (disposed || connecting || sessionIdRef.current || !secret) return
       credOverride = { secret, kind }
+      saveOnSuccess = save
       attempts = 0
       void openSession()
     }
 
-    // Live theme switching for already-open terminals.
+    // Live theme + font switching for already-open terminals.
     const onTheme = (): void => {
       term.options.theme = getActiveTheme()
+      term.options.fontFamily = getFontFamily()
+      term.options.fontSize = getFontSize()
+      safeFit(fit)
+      if (sessionIdRef.current) window.api.ssh.resize(sessionIdRef.current, term.cols, term.rows)
     }
     window.addEventListener(THEME_EVENT, onTheme)
 
@@ -307,6 +370,7 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
       window.removeEventListener('resize', syncSize)
       window.removeEventListener('online', onOnline)
       window.removeEventListener(THEME_EVENT, onTheme)
+      bus?.removeEventListener('bcast', onBus)
       unsubData?.()
       unsubClosed?.()
       onSessionRef.current?.(null)
@@ -326,9 +390,41 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
     return () => clearTimeout(t)
   }, [active, authPrompt])
 
+  const findNext = (back = false): void => {
+    if (!searchTerm) return
+    const opts = { decorations: { matchOverviewRuler: '#f2c94c', activeMatchColorOverviewRuler: '#2091f6' } }
+    if (back) searchRef.current?.findPrevious(searchTerm, opts)
+    else searchRef.current?.findNext(searchTerm, opts)
+  }
+  const closeSearch = (): void => {
+    setSearchOpen(false)
+    searchRef.current?.clearDecorations()
+    termRef.current?.focus()
+  }
+
   return (
     <div className={`term-pane${active ? '' : ' hidden'}`}>
       <div className="term-host" ref={containerRef} />
+
+      {searchOpen && (
+        <div className="term-search">
+          <input
+            autoFocus
+            placeholder="Find"
+            value={searchTerm}
+            onChange={(e) => {
+              setSearchTerm(e.target.value)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); findNext(e.shiftKey) }
+              if (e.key === 'Escape') { e.preventDefault(); closeSearch() }
+            }}
+          />
+          <button className="ts-btn" title="Previous" onClick={() => findNext(true)}>↑</button>
+          <button className="ts-btn" title="Next" onClick={() => findNext(false)}>↓</button>
+          <button className="ts-btn" title="Close" onClick={closeSearch}>✕</button>
+        </div>
+      )}
       {(onSplit || onClosePane) && (
         <div className="pane-overlay">
           {onSplit && (
@@ -351,7 +447,7 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
             e.preventDefault()
             const secret = authDraft
             setAuthDraft('')
-            retryAuthRef.current(secret, authPrompt.kind)
+            retryAuthRef.current(secret, authPrompt.kind, authSave)
           }}
         >
           <div className="auth-title">
@@ -365,6 +461,10 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
             value={authDraft}
             onChange={(e) => setAuthDraft(e.target.value)}
           />
+          <label className="auth-save">
+            <input type="checkbox" checked={authSave} onChange={(e) => setAuthSave(e.target.checked)} />
+            Save to this host
+          </label>
           <button type="submit" className="btn primary sm" disabled={!authDraft}>
             Connect
           </button>
