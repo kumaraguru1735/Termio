@@ -442,6 +442,17 @@ input { font-family: inherit; }
 .bcast-toggle:hover { background: rgba(40,48,66,0.95); color: #fff; }
 .bcast-toggle.on { background: var(--blue); border-color: var(--blue); color: #fff; }
 
+/* Serial console. */
+.serial-bar {
+  position: absolute; top: 0; left: 0; right: 0; height: 38px; z-index: 5;
+  display: flex; align-items: center; gap: 8px; padding: 0 12px;
+  background: var(--topbar); color: var(--topbar-text); font-size: 12px;
+}
+.serial-bar select { background: var(--field); color: var(--field-text); border: 1px solid var(--border); border-radius: 7px; padding: 5px 8px; }
+.serial-bar .serial-err { color: var(--red); font-size: 11.5px; }
+.serial-host { position: absolute; top: 38px; left: 0; right: 0; bottom: 0; padding: 6px 8px; }
+.serial-host .xterm { height: 100%; }
+
 /* App lock screen. */
 .lock-screen {
   position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;

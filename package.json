@@ -11,13 +11,17 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder --linux deb AppImage"
+    "rebuild": "electron-rebuild -f -w node-pty",
+    "postinstall": "electron-rebuild -f -w node-pty",
+    "pack": "npm run rebuild && npm run build && electron-builder --dir",
+    "dist": "npm run rebuild && npm run build && electron-builder --linux deb AppImage"
   },
   "dependencies": {
     "@xterm/addon-search": "^0.16.0",
     "@xterm/addon-web-links": "^0.12.0",
-    "ssh2": "^1.16.0"
+    "node-pty": "^1.1.0",
+    "ssh2": "^1.16.0",
+    "zmodem.js": "^0.1.10"
   },
   "build": {
     "appId": "dev.termio.app",
@@ -89,6 +93,7 @@
     }
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
     "@types/node": "^22.10.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",

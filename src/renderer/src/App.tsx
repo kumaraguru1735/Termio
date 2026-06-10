@@ -6,6 +6,7 @@ import NewHostPanel from './components/NewHostPanel'
 import TerminalView, { type TabStatus } from './components/TerminalView'
 import SplitTerminal from './components/SplitTerminal'
 import SftpView from './components/SftpView'
+import SerialView from './components/SerialView'
 import SessionPicker from './components/SessionPicker'
 import KeychainView from './components/KeychainView'
 import KnownHostsView from './components/KnownHostsView'
@@ -16,9 +17,9 @@ import LogsView from './components/LogsView'
 import HostKeyChangedDialog, { type HostKeyPrompt } from './components/HostKeyChangedDialog'
 import KbInteractiveDialog from './components/KbInteractiveDialog'
 import LockScreen from './components/LockScreen'
-import type { HostConfig, KbInteractivePrompt } from '../../shared/types'
+import type { HostConfig, KbInteractivePrompt, SerialPortInfo } from '../../shared/types'
 
-type TabKind = 'terminal' | 'sftp'
+type TabKind = 'terminal' | 'sftp' | 'local' | 'serial'
 interface Tab {
   tabId: string
   /** null while the tab is "pending" — waiting for the user to pick a host. */
@@ -39,13 +40,24 @@ export default function App(): JSX.Element {
   const [panelOpen, setPanelOpen] = useState(false)
   const [editing, setEditing] = useState<HostConfig | null>(null)
   /** Default action when a host card is double-clicked. Driven by the + menu. */
-  const [openAs, setOpenAs] = useState<TabKind>('terminal')
+  const [openAs, setOpenAs] = useState<'terminal' | 'sftp'>('terminal')
   /** Queue of pending host-key-changed prompts (one shown at a time). */
   const [hkPrompts, setHkPrompts] = useState<HostKeyPrompt[]>([])
   /** Queue of pending keyboard-interactive (2FA) prompts. */
   const [kbiPrompts, setKbiPrompts] = useState<KbInteractivePrompt[]>([])
   /** null = checking, true = locked (show lock screen), false = unlocked. */
   const [locked, setLocked] = useState<boolean | null>(null)
+  /** Pending Web Serial port choices (shown as a picker). */
+  const [serialPorts, setSerialPorts] = useState<SerialPortInfo[] | null>(null)
+
+  useEffect(() => {
+    return window.api.serial.onAsk((ports) => setSerialPorts(ports))
+  }, [])
+
+  const chooseSerial = (portId: string): void => {
+    window.api.serial.choose(portId)
+    setSerialPorts(null)
+  }
 
   useEffect(() => {
     void window.api.lock.status().then((s) => setLocked(s.enabled))
@@ -229,8 +241,24 @@ export default function App(): JSX.Element {
             setView('hosts')
             return
           }
-          // Create a real new tab in the top bar, pending until a host is picked.
           const tabId = crypto.randomUUID()
+          if (kind === 'local' || kind === 'serial') {
+            // Local shell / serial console need no host — open immediately.
+            const synthetic: HostConfig = {
+              id: `${kind}-${tabId}`,
+              label: kind === 'local' ? 'Local shell' : 'Serial console',
+              host: '', port: 0, username: '', authType: 'agent'
+            }
+            setTabs((t) => [
+              ...t,
+              { tabId, host: synthetic, kind, status: 'connecting', paneIds: [crypto.randomUUID()] }
+            ])
+            setActiveTabId(tabId)
+            setShowingTab(true)
+            setPanelOpen(false)
+            return
+          }
+          // Create a real new tab in the top bar, pending until a host is picked.
           setTabs((t) => [...t, { tabId, host: null, kind, status: 'pending', paneIds: [crypto.randomUUID()] }])
           setActiveTabId(tabId)
           setOpenAs(kind)
@@ -251,7 +279,7 @@ export default function App(): JSX.Element {
                 return (
                   <SessionPicker
                     key={t.tabId}
-                    kind={t.kind}
+                    kind={t.kind === 'sftp' ? 'sftp' : 'terminal'}
                     active={isActive}
                     hosts={hosts}
                     onPick={(h) => bindTab(t.tabId, h)}
@@ -279,14 +307,37 @@ export default function App(): JSX.Element {
                   />
                 )
               }
-              return t.kind === 'sftp' ? (
-                <SftpView
-                  key={t.tabId}
-                  host={t.host}
-                  active={isActive}
-                  onStatus={(s) => setStatus(t.tabId, s)}
-                />
-              ) : (
+              if (t.kind === 'sftp') {
+                return (
+                  <SftpView
+                    key={t.tabId}
+                    host={t.host}
+                    active={isActive}
+                    onStatus={(s) => setStatus(t.tabId, s)}
+                  />
+                )
+              }
+              if (t.kind === 'local') {
+                return (
+                  <TerminalView
+                    key={t.tabId}
+                    host={t.host}
+                    active={isActive}
+                    localShell
+                    onStatus={(s) => setStatus(t.tabId, s)}
+                  />
+                )
+              }
+              if (t.kind === 'serial') {
+                return (
+                  <SerialView
+                    key={t.tabId}
+                    active={isActive}
+                    onStatus={(s) => setStatus(t.tabId, s)}
+                  />
+                )
+              }
+              return (
                 <SplitTerminal
                   key={t.tabId}
                   host={t.host}
@@ -351,6 +402,28 @@ export default function App(): JSX.Element {
 
       {kbiPrompts.length > 0 && (
         <KbInteractiveDialog prompt={kbiPrompts[0]} onAnswer={answerKbi} />
+      )}
+
+      {serialPorts && (
+        <div className="modal-backdrop" onMouseDown={() => chooseSerial('')}>
+          <div className="modal" style={{ width: 400 }} onMouseDown={(e) => e.stopPropagation()}>
+            <h3 style={{ marginBottom: 10 }}>Select a serial port</h3>
+            {serialPorts.length === 0 && <p className="section-sub">No serial ports detected.</p>}
+            <div className="list-card">
+              {serialPorts.map((p) => (
+                <button key={p.portId} className="list-row" style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none' }} onClick={() => chooseSerial(p.portId)}>
+                  <div className="list-meta">
+                    <div className="list-name">{p.name}</div>
+                    {(p.vid || p.pid) && <div className="list-sub mono">{p.vid}:{p.pid}</div>}
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 12 }}>
+              <button className="btn sm" onClick={() => chooseSerial('')}>Cancel</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

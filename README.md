@@ -47,6 +47,9 @@ auto-update, or watched a free tier swallow your saved hosts because the
 
 ### Connectivity
 - ⚡ **SSH terminal** with full PTY, xterm.js, configurable backspace mode
+- 💻 **Local shell** — open a real local terminal (node-pty PTY, full resize, runs vim/htop/tmux)
+- ☎️ **Telnet** and 🛰️ **Mosh** protocols, plus 🔌 **Serial console** (Web Serial — pick a port + baud)
+- 📨 **ZMODEM** file transfer — `sz`/`rz` on the remote pop native save/open dialogs
 - 🔄 **Auto-reconnect** — keepalives detect dead links and reconnect with backoff; reconnects instantly when the network comes back; press **Enter** to reconnect a closed session
 - 📁 **SFTP** dual-pane file manager (Local ↔ Remote) with breadcrumb, sort, **drag-and-drop** (between panes and from the OS), upload/download/rename/delete/mkdir/refresh
 - 🌐 **Port forwarding** — **Local (`-L`)**, **Remote (`-R`)**, and **Dynamic SOCKS5 (`-D`)** tunnels
@@ -82,7 +85,7 @@ auto-update, or watched a free tier swallow your saved hosts because the
 - 🔍 **Find in terminal** (`Ctrl/⌘+F`) and **clickable URLs**
 - 🪟 **Split panes** with drag-resize and **broadcast typing** to both panes
 - 📝 **Snippets** — saved one-liners, "Run" sends to the active terminal
-- 🆕 **`+` menu** for new tabs: *New Terminal session*, *New SFTP session*, *New Host…*
+- 🆕 **`+` menu** for new tabs: *Terminal*, *SFTP*, *Local shell*, *Serial console*, *New Host…*
 - 🪟 **Custom frameless title bar**; single-instance (a second launch focuses the window)
 - 🏷️ Tag chips on host cards, search filter across label/host/username
 - 💾 Tabs persist sessions across nav switches (SSH stays alive while you browse Settings)
@@ -129,16 +132,25 @@ auto-update, or watched a free tier swallow your saved hosts because the
 | **UI framework** | React 18 | Familiar component model, simple state lifting. |
 | **Terminal widget** | `@xterm/xterm` 5.5 + `addon-fit` / `addon-search` / `addon-web-links` | Spec-faithful VT emulator, ANSI/color/resize, find-in-buffer, clickable URLs. |
 | **SSH/SFTP** | `ssh2` (pure-JS) | Reliable, well-maintained, supports `forwardOut`/`forwardIn`, keyboard-interactive, custom `sock`, hostVerifier callback. |
+| **Local PTY** | `node-pty` (rebuilt for Electron) | Real pseudo-terminal for the local shell + Mosh — proper resize, job control, full-screen TUIs. |
+| **File transfer** | `zmodem.js` (pure-JS) | ZMODEM `sz`/`rz` over the terminal stream, handled in main with native dialogs. |
+| **Serial** | Web Serial API (Chromium) | Serial console with no native module — port chosen via an in-app picker. |
 | **Encryption (at rest)** | Electron `safeStorage` (OS keyring via libsecret / DPAPI / Keychain) | Zero-config secrets storage backed by the OS. |
 | **Encryption (vault)** | Node `crypto` — scrypt(N=16384, r=8, p=1) + AES‑256‑GCM | Strong KDF, AEAD with tampering detection. |
 | **Networking** | Node `net` (raw TCP for SOCKS5) | Implements the SOCKS5 (RFC 1928) CONNECT path in ~40 lines. |
 | **Packaging** | electron-builder 25 | `.deb` + AppImage targets, no `electron-updater`. |
 
-### Why no native modules?
-`better-sqlite3` and friends require a per-Electron-version native rebuild that
-breaks on Python 3.12 (`distutils` removed). Termio uses Electron's built-in
-`safeStorage` + plain JSON files — fast enough for thousands of hosts, easier
-to package, easier to back up.
+### Why (almost) no native modules?
+Storage stays native-free: instead of `better-sqlite3` and friends — which need
+a per-Electron-version rebuild — Termio uses Electron's built-in `safeStorage`
++ plain JSON files. Fast enough for thousands of hosts, easy to package and back
+up.
+
+The **one** native dependency is `node-pty`, used solely for the local-shell
+PTY (a real terminal can't be faked in pure JS). It's rebuilt for Electron's ABI
+via `@electron/rebuild` (`npm run rebuild`, also wired into `postinstall` and
+`dist`) and shipped pre-built in `app.asar.unpacked`. Everything else —
+SSH/SFTP, telnet, ZMODEM, serial — is pure-JS or a browser API.
 
 ---
 
@@ -175,6 +187,8 @@ to package, easier to back up.
 │ ├─ knownhosts.ts     ← TOFU known-hosts store + ~/.ssh key discovery   │
 │ ├─ sftp.ts           ← SFTP sessions, dir listing, transfers           │
 │ ├─ portforward.ts    ← -L / -R / -D tunnels (forwardOut/In + SOCKS5)   │
+│ ├─ terminals.ts      ← local shell (node-pty), telnet, mosh transports │
+│ ├─ zmodem.ts         ← ZMODEM sz/rz bridge on the SSH byte stream      │
 │ ├─ prompts.ts        ← host-key-changed + keyboard-interactive bridges │
 │ ├─ lock.ts           ← scrypt-hashed app-lock passphrase               │
 │ ├─ snippets.ts       ← JSON store for saved commands                   │
@@ -372,7 +386,10 @@ npm run dist         # signed-less .deb + AppImage in release/
 - [x] **Configurable font + zoom, 10 themes, light/dark app theme**
 - [x] **SFTP drag-and-drop + in-pane file management**
 - [x] **Import `~/.ssh/config`**, single-instance focus, optional app lock
-- [ ] Local shell tab (needs `node-pty`), zmodem, Mosh / Telnet / serial
+- [x] **Local shell tab** (node-pty PTY with full resize)
+- [x] **Telnet** and **Mosh** protocols
+- [x] **Serial console** (Web Serial API)
+- [x] **ZMODEM** `sz`/`rz` file transfer
 
 ---
 

@@ -16,6 +16,8 @@ import { registerActivityHandlers, logHost } from './activity'
 import { registerPromptHandlers } from './prompts'
 import { registerKeyGenHandlers } from './keygen'
 import { registerLockHandlers } from './lock'
+import { registerTerminalHandlers, closeAllTerminals } from './terminals'
+import { makeZmodemBridge } from './zmodem'
 
 /** Live SSH sessions keyed by sessionId. */
 interface Session {
@@ -40,6 +42,8 @@ try {
 }
 
 let mainWindow: BrowserWindow | null = null
+/** Pending Web Serial port-selection callback, resolved by the renderer picker. */
+let pendingSerialChoose: ((portId: string) => void) | null = null
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -59,6 +63,25 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
+
+  // Web Serial support: grant access and route port selection to a renderer
+  // picker (Electron requires the app to choose a port via the callback).
+  const ses = mainWindow.webContents.session
+  ses.setPermissionCheckHandler((_wc, perm) => perm === 'serial' || true)
+  ses.setDevicePermissionHandler(() => true)
+  ses.on('select-serial-port', (event, portList, _wc, callback) => {
+    event.preventDefault()
+    pendingSerialChoose = callback
+    mainWindow?.webContents.send(
+      IPC.serialAsk,
+      portList.map((p) => ({
+        portId: p.portId,
+        name: p.portName || p.displayName || p.portId,
+        vid: p.vendorId,
+        pid: p.productId
+      }))
+    )
+  })
 
   // Open external links in the OS browser, never in-app.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -100,8 +123,11 @@ function registerSshHandlers(): void {
         sessions.set(sessionId, { client, stream })
         logHost(cfg, 'terminal', 'connected')
 
+        // ZMODEM bridge: sz/rz on the remote drive file transfers via dialogs.
+        // Non-ZMODEM output passes straight through to the terminal.
+        const zmodem = makeZmodemBridge(sessionId, wc, (buf) => stream.write(buf))
         stream.on('data', (d: Buffer) => {
-          if (!wc.isDestroyed()) wc.send(IPC.sshData(sessionId), d.toString('utf8'))
+          if (!wc.isDestroyed()) zmodem.consume(d)
         })
         stream.stderr.on('data', (d: Buffer) => {
           if (!wc.isDestroyed()) wc.send(IPC.sshData(sessionId), d.toString('utf8'))
@@ -256,6 +282,11 @@ if (!app.requestSingleInstanceLock()) {
     registerPromptHandlers()
     registerKeyGenHandlers()
     registerLockHandlers()
+    registerTerminalHandlers()
+    ipcMain.on(IPC.serialChoose, (_e, portId: string) => {
+      pendingSerialChoose?.(portId || '')
+      pendingSerialChoose = null
+    })
     createWindow()
 
     app.on('activate', () => {
@@ -269,5 +300,6 @@ app.on('window-all-closed', () => {
   sessions.clear()
   closeAllSftp()
   closeAllForwards()
+  closeAllTerminals()
   if (process.platform !== 'darwin') app.quit()
 })

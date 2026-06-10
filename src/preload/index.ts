@@ -12,7 +12,8 @@ import {
   type Snippet,
   type SyncResult,
   type ActivityRecord,
-  type KbInteractivePrompt
+  type KbInteractivePrompt,
+  type SerialPortInfo
 } from '../shared/types'
 
 const api = {
@@ -97,6 +98,21 @@ const api = {
   local: {
     home: (): Promise<string> => ipcRenderer.invoke(IPC.localHome),
     list: (path: string): Promise<DirListing> => ipcRenderer.invoke(IPC.localList, path)
+  },
+
+  /** Non-SSH terminals: local shell, telnet, mosh. Output/close arrive on the
+   *  same channels as SSH, so use window.api.ssh.onData/onClosed to subscribe. */
+  term: {
+    openLocal: (): Promise<{ ok: boolean; sessionId?: string; error?: string }> =>
+      ipcRenderer.invoke(IPC.termOpenLocal),
+    openTelnet: (host: string, port: number): Promise<{ ok: boolean; sessionId?: string; error?: string }> =>
+      ipcRenderer.invoke(IPC.termOpenTelnet, host, port),
+    openMosh: (target: string, extra: string[]): Promise<{ ok: boolean; sessionId?: string; error?: string }> =>
+      ipcRenderer.invoke(IPC.termOpenMosh, target, extra),
+    write: (sessionId: string, data: string): void => ipcRenderer.send(IPC.termWrite, sessionId, data),
+    resize: (sessionId: string, cols: number, rows: number): void =>
+      ipcRenderer.send(IPC.termResize, sessionId, cols, rows),
+    close: (sessionId: string): void => ipcRenderer.send(IPC.termClose, sessionId)
   },
 
   files: {
@@ -184,6 +200,16 @@ const api = {
       ipcRenderer.invoke(IPC.lockSet, passphrase),
     verify: (passphrase: string): Promise<{ ok: boolean }> =>
       ipcRenderer.invoke(IPC.lockVerify, passphrase)
+  },
+
+  serial: {
+    /** Subscribe to the port list when the OS prompts for a serial choice. */
+    onAsk: (cb: (ports: SerialPortInfo[]) => void): (() => void) => {
+      const h = (_e: IpcRendererEvent, ports: unknown): void => cb(ports as SerialPortInfo[])
+      ipcRenderer.on(IPC.serialAsk, h)
+      return () => ipcRenderer.removeListener(IPC.serialAsk, h)
+    },
+    choose: (portId: string): void => ipcRenderer.send(IPC.serialChoose, portId)
   }
 }
 

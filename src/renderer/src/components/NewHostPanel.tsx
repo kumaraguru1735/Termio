@@ -1,5 +1,5 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
-import type { BackspaceMode, HostConfig, Identity, ProxyType } from '../../../shared/types'
+import type { BackspaceMode, HostConfig, Identity, Protocol, ProxyType } from '../../../shared/types'
 import {
   IconHosts,
   IconUser,
@@ -28,6 +28,7 @@ export default function NewHostPanel({ hosts, initial, onSave, onClose }: Props)
   const [tags, setTags] = useState<string[]>(initial?.tags ?? [])
   const [tagDraft, setTagDraft] = useState('')
   const [backspace, setBackspace] = useState<BackspaceMode>(initial?.backspace ?? 'default')
+  const [protocol, setProtocol] = useState<Protocol>(initial?.protocol ?? 'ssh')
   const [port, setPort] = useState(String(initial?.port ?? 22))
   const [username, setUsername] = useState(initial?.username ?? '')
   const [password, setPassword] = useState(initial?.password ?? '')
@@ -103,7 +104,8 @@ export default function NewHostPanel({ hosts, initial, onSave, onClose }: Props)
       env: Object.keys(env).length ? env : undefined,
       identityId: identityId || undefined,
       // Default is on — only persist the opt-out.
-      autoReconnect: autoReconnect ? undefined : false
+      autoReconnect: autoReconnect ? undefined : false,
+      protocol: protocol === 'ssh' ? undefined : protocol
     }
   }
 
@@ -130,6 +132,23 @@ export default function NewHostPanel({ hosts, initial, onSave, onClose }: Props)
         </div>
 
         <div className="rp-section">General</div>
+        <div className="fld">
+          <span className="lbl flex1">Protocol</span>
+          <select
+            className="pill-select"
+            value={protocol}
+            onChange={(e) => {
+              const p = e.target.value as Protocol
+              setProtocol(p)
+              if (p === 'telnet' && port === '22') setPort('23')
+              if (p !== 'telnet' && port === '23') setPort('22')
+            }}
+          >
+            <option value="ssh">SSH</option>
+            <option value="telnet">Telnet</option>
+            <option value="mosh">Mosh</option>
+          </select>
+        </div>
         <div className="fld">
           <input placeholder="Label" value={label} onChange={(e) => setLabel(e.target.value)} />
         </div>

@@ -23,6 +23,8 @@ interface Props {
   bus?: EventTarget
   /** Live flag: when true, local input is broadcast to the whole bus. */
   broadcastRef?: { current: boolean }
+  /** Open a local shell instead of connecting to the host. */
+  localShell?: boolean
 }
 
 /**
@@ -30,7 +32,7 @@ interface Props {
  * and bridges keystrokes/output/resize over IPC. Stays mounted while
  * inactive so scrollback survives tab switches.
  */
-export default function TerminalView({ host, active, onStatus, onSession, onSplit, onClosePane, bus, broadcastRef }: Props): JSX.Element {
+export default function TerminalView({ host, active, onStatus, onSession, onSplit, onClosePane, bus, broadcastRef, localShell }: Props): JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
@@ -207,8 +209,37 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
     let unsubData: (() => void) | undefined
     let unsubClosed: (() => void) | undefined
 
+    // Transport: ssh (default), or one of the non-SSH terminals. Output and
+    // close events arrive on the same channels for all of them.
+    const proto: 'ssh' | 'telnet' | 'mosh' | 'local' = localShell ? 'local' : host.protocol ?? 'ssh'
+    const isSsh = proto === 'ssh'
+    const tWrite = (d: string): void =>
+      isSsh ? window.api.ssh.write(sessionIdRef.current!, d) : window.api.term.write(sessionIdRef.current!, d)
+    const tResize = (cols: number, rows: number): void => {
+      if (!sessionIdRef.current) return
+      if (isSsh) window.api.ssh.resize(sessionIdRef.current, cols, rows)
+      else window.api.term.resize(sessionIdRef.current, cols, rows)
+    }
+    const tClose = (id: string): void =>
+      isSsh ? window.api.ssh.close(id) : window.api.term.close(id)
+    const connectTransport = (): Promise<{ ok: boolean; sessionId?: string; error?: string }> => {
+      if (proto === 'telnet') return window.api.term.openTelnet(host.host, host.port || 23)
+      if (proto === 'mosh') {
+        const extra = host.port && host.port !== 22 ? ['--ssh', `ssh -p ${host.port}`] : []
+        return window.api.term.openMosh(`${host.username}@${host.host}`, extra)
+      }
+      if (proto === 'local') return window.api.term.openLocal()
+      return window.api.ssh.connect(hostFor())
+    }
+    const connectingLabel = (): string => {
+      if (proto === 'local') return 'Starting local shell …'
+      if (proto === 'telnet') return `Telnet to ${host.host}:${host.port || 23} …`
+      if (proto === 'mosh') return `Mosh to ${host.username}@${host.host} …`
+      return `Connecting to ${host.username}@${host.host}:${host.port} …`
+    }
+
     const writeSession = (d: string): void => {
-      if (sessionIdRef.current) window.api.ssh.write(sessionIdRef.current, d)
+      if (sessionIdRef.current) tWrite(d)
     }
     // Registered once — writes to whichever session is current, so a
     // reconnect never double-sends keystrokes. When broadcasting, fan the
@@ -220,7 +251,8 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
     const onBus = (e: Event): void => writeSession((e as CustomEvent<string>).detail)
     bus?.addEventListener('bcast', onBus)
 
-    const autoReconnect = host.autoReconnect !== false
+    // Auto-reconnect is SSH-only; local/telnet/mosh use Enter-to-restart.
+    const autoReconnect = isSsh && host.autoReconnect !== false
     const RETRY_DELAYS = [2000, 4000, 8000, 15000, 30000]
 
     // A correct secret typed after an auth failure is reused for the rest of
@@ -257,11 +289,11 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
       connecting = true
       setAuthPrompt(null)
       onStatusRef.current('connecting')
-      term.writeln(`\x1b[90mConnecting to ${host.username}@${host.host}:${host.port} …\x1b[0m`)
-      const res = await window.api.ssh.connect(hostFor())
+      term.writeln(`\x1b[90m${connectingLabel()}\x1b[0m`)
+      const res = await connectTransport()
       connecting = false
       if (disposed) {
-        if (res.ok && res.sessionId) window.api.ssh.close(res.sessionId)
+        if (res.ok && res.sessionId) tClose(res.sessionId)
         return
       }
       if (!res.ok || !res.sessionId) {
@@ -269,8 +301,8 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
         term.writeln(`\r\n\x1b[31m[connection failed: ${err}]\x1b[0m`)
         onStatusRef.current('closed')
         // Authentication failure → ask the user for the secret and retry,
-        // rather than silently re-trying the same wrong one.
-        if (/auth|password|passphrase|permission denied/i.test(err)) {
+        // rather than silently re-trying the same wrong one. (SSH only.)
+        if (isSsh && /auth|password|passphrase|permission denied/i.test(err)) {
           const kind = /passphrase/i.test(err) ? 'passphrase' : 'password'
           term.writeln(`\x1b[90m[wrong ${kind} — enter it below to try again]\x1b[0m`)
           setAuthPrompt({ message: err, kind })
@@ -306,11 +338,12 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
         sessionIdRef.current = null
         onStatusRef.current('closed')
         onSessionRef.current?.(null)
-        term.writeln('\r\n\x1b[33m[session closed]\x1b[0m')
+        const what = proto === 'local' ? 'shell exited' : 'session closed'
+        term.writeln(`\r\n\x1b[33m[${what}]\x1b[0m`)
         if (autoReconnect) scheduleReconnect()
         else term.writeln('\x1b[90m[press Enter to reconnect]\x1b[0m')
       })
-      window.api.ssh.resize(id, term.cols, term.rows)
+      tResize(term.cols, term.rows)
     }
 
     void openSession()
@@ -350,13 +383,13 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
       term.options.fontFamily = getFontFamily()
       term.options.fontSize = getFontSize()
       safeFit(fit)
-      if (sessionIdRef.current) window.api.ssh.resize(sessionIdRef.current, term.cols, term.rows)
+      tResize(term.cols, term.rows)
     }
     window.addEventListener(THEME_EVENT, onTheme)
 
     const syncSize = (): void => {
       safeFit(fit)
-      if (sessionIdRef.current) window.api.ssh.resize(sessionIdRef.current, term.cols, term.rows)
+      tResize(term.cols, term.rows)
     }
     const ro = new ResizeObserver(syncSize)
     ro.observe(containerRef.current!)
@@ -374,7 +407,7 @@ export default function TerminalView({ host, active, onStatus, onSession, onSpli
       unsubData?.()
       unsubClosed?.()
       onSessionRef.current?.(null)
-      if (sessionIdRef.current) window.api.ssh.close(sessionIdRef.current)
+      if (sessionIdRef.current) tClose(sessionIdRef.current)
       term.dispose()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

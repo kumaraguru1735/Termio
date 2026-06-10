@@ -16,11 +16,11 @@ import type { TabStatus } from './TerminalView'
 export interface TopTab {
   tabId: string
   title: string
-  kind: 'terminal' | 'sftp'
+  kind: 'terminal' | 'sftp' | 'local' | 'serial'
   status: TabStatus
 }
 
-export type NewTabKind = 'terminal' | 'sftp' | 'host'
+export type NewTabKind = 'terminal' | 'sftp' | 'host' | 'local' | 'serial'
 
 interface Props {
   tabs: TopTab[]
@@ -104,6 +104,12 @@ export default function TopBar({
             </button>
             <button className="popover-item" onClick={() => pick('sftp')}>
               <IconSftp /> <span>New SFTP session</span>
+            </button>
+            <button className="popover-item" onClick={() => pick('local')}>
+              <IconTerminal /> <span>New Local shell</span>
+            </button>
+            <button className="popover-item" onClick={() => pick('serial')}>
+              <IconTerminal /> <span>New Serial console</span>
             </button>
             <div className="popover-sep" />
             <button className="popover-item" onClick={() => pick('host')}>

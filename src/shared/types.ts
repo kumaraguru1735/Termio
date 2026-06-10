@@ -2,6 +2,9 @@
 
 export type AuthType = 'password' | 'key' | 'agent'
 
+/** Connection protocol for a saved host. Defaults to ssh. */
+export type Protocol = 'ssh' | 'telnet' | 'mosh'
+
 export type BackspaceMode = 'default' | 'ctrl-h'
 export type ProxyType = 'none' | 'socks5'
 
@@ -53,6 +56,8 @@ export interface HostConfig {
   identityId?: string
   /** Reconnect automatically after an unexpected drop / network restore (default on). */
   autoReconnect?: boolean
+  /** Connection protocol (ssh default; telnet and mosh are alternatives). */
+  protocol?: Protocol
 }
 
 export interface KnownHost {
@@ -168,6 +173,17 @@ export const IPC = {
   // Per-session push channels are suffixed with the sessionId:
   sshData: (id: string) => `ssh:data:${id}`,
   sshClosed: (id: string) => `ssh:closed:${id}`,
+  // Non-SSH terminal transports (local shell / telnet / mosh) — emit on the
+  // same sshData/sshClosed channels so the renderer can subscribe uniformly.
+  termOpenLocal: 'term:open-local',
+  termOpenTelnet: 'term:open-telnet',
+  termOpenMosh: 'term:open-mosh',
+  termWrite: 'term:write',
+  termResize: 'term:resize',
+  termClose: 'term:close',
+  // Web Serial port picker (main → renderer list, renderer → main choice)
+  serialAsk: 'serial:ask',
+  serialChoose: 'serial:choose',
   // Host store
   hostsList: 'hosts:list',
   hostsUpsert: 'hosts:upsert',
@@ -229,6 +245,13 @@ export const IPC = {
   lockSet: 'lock:set',
   lockVerify: 'lock:verify'
 } as const
+
+export interface SerialPortInfo {
+  portId: string
+  name: string
+  vid?: string
+  pid?: string
+}
 
 export interface KbInteractivePrompt {
   promptId: string
