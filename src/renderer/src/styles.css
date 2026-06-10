@@ -96,6 +96,17 @@ input { font-family: inherit; }
   border: none; border-radius: 7px; padding: 6px 10px; font-weight: 600; font-size: 12px;
 }
 .vault-chip .vk { width: 14px; height: 14px; border-radius: 4px; background: linear-gradient(135deg,#2091f6,#21b568); }
+.brand {
+  -webkit-app-region: no-drag;
+  display: flex; align-items: center; gap: 8px;
+  color: var(--topbar-active); font-weight: 700; font-size: 14px;
+  letter-spacing: 0.2px; padding: 0 6px 0 2px; margin-right: 2px; user-select: none;
+}
+.brand-mark {
+  width: 16px; height: 16px; border-radius: 5px;
+  background: linear-gradient(135deg,#2091f6,#21b568);
+  box-shadow: 0 1px 3px rgba(32,145,246,0.4);
+}
 .top-tabs { display: flex; align-items: stretch; gap: 4px; -webkit-app-region: no-drag; min-width: 0; }
 .top-tab {
   display: flex; align-items: center; gap: 7px;

@@ -93,13 +93,28 @@ export default function SerialView({ active, onStatus }: Props): JSX.Element {
     }
   }
 
-  const connect = async (): Promise<void> => {
+  // Must run inside the click gesture: requestPort() needs transient user
+  // activation, which an `await` before it would consume. So no awaits first.
+  const connect = (): void => {
     setError('')
-    if (!serial()) return setError('Web Serial is not available in this build.')
+    const api = serial()
+    if (!api) return setError('Web Serial is not available in this build.')
+    api
+      .requestPort()
+      .then((port: any) => openPort(port))
+      .catch((e: Error) => {
+        // NotFoundError = user cancelled or no ports present.
+        setError(
+          e?.name === 'NotFoundError'
+            ? 'No serial port selected (none found? plug in a USB-serial adapter).'
+            : e?.message || 'Could not open serial port.'
+        )
+        onStatus('closed')
+      })
+  }
+
+  const openPort = async (port: any): Promise<void> => {
     try {
-      // Reuse a previously granted port, else prompt (handled by the app picker).
-      const granted = await serial().getPorts()
-      const port = granted[0] ?? (await serial().requestPort())
       await port.open({ baudRate: baud })
       portRef.current = port
       writerRef.current = port.writable.getWriter()
@@ -136,7 +151,7 @@ export default function SerialView({ active, onStatus }: Props): JSX.Element {
         {connected ? (
           <button className="btn sm danger-btn" onClick={() => void disconnect()}>Disconnect</button>
         ) : (
-          <button className="btn sm primary" onClick={() => void connect()}>Connect…</button>
+          <button className="btn sm primary" onClick={connect}>Connect…</button>
         )}
         {error && <span className="serial-err">{error}</span>}
       </div>

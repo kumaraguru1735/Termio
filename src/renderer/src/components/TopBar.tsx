@@ -62,6 +62,10 @@ export default function TopBar({
       <button className="hamburger" title="Menu">
         <IconMenu />
       </button>
+      <span className="brand" title="Termio">
+        <span className="brand-mark" />
+        Termio
+      </span>
       <button className="vault-chip" title="Vault">
         <span className="vk" />
         Vaults
